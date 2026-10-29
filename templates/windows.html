@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Windows-hjælper – Spilarr{% endblock %}
+{% block body %}
+<div class="page">
+  <h1>Windows-hjælper</h1>
+  <p>Knapperne <b>Installer</b>, <b>Afmonter</b> og <b>Åbn mappe</b> er <code>spil://</code>-links. De virker på en Windows-PC med hjælperen installeret: den mounter ISO'en direkte fra sharen (intet kopieres) og åbner drevet i Stifinder.</p>
+  <h2>Installation (én gang pr. PC, ingen administrator)</h2>
+  <p>Kør i PowerShell:</p>
+  <pre>irm {{ server }}/windows/install.ps1 | iex</pre>
+  <p>Den lægger <code>spil-handler.ps1</code> i <code>%LOCALAPPDATA%\Spilarr</code> og registrerer <code>spil://</code> for din bruger (HKCU).</p>
+  <h2>Første gang</h2>
+  <ul>
+    <li>Windows skal kunne nå sharen: åbn den i Stifinder og gem login.</li>
+    <li>Browseren spørger, om den må åbne Spilarr-links – vælg <i>Tillad altid</i>.</li>
+  </ul>
+  <p><a href="/windows/spil-handler.ps1">Se spil-handler.ps1</a> · <a href="/windows/install.ps1">Se install.ps1</a></p>
+</div>
+{% endblock %}

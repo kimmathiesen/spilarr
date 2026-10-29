@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block tools %}
+  <input id="q" type="search" placeholder="Søg…" autocomplete="off">
+  <div class="chips" id="kinds">
+    <button class="chip on" data-k="">Alle</button>
+    {% for k in kinds %}<button class="chip" data-k="{{ k.key }}">{{ k.label }}</button>{% endfor %}
+  </div>
+  <form method="get" class="sort">
+    <select name="sort" onchange="this.form.submit()">
+      {% for s in sorts %}<option value="{{ s.key }}"{% if s.on %} selected{% endif %}>{{ s.label }}</option>{% endfor %}
+    </select>
+  </form>
+  <form method="post" action="/scan"><button class="btn" id="scanbtn">Scan nu</button></form>
+  <span id="st" class="muted">{{ msg }}</span>
+{% endblock %}
+{% block body %}
+<p class="muted count"><span id="n">{{ cards.len() }}</span> spil</p>
+<div class="grid" id="grid">
+  {% for g in cards %}
+  <a class="card" href="/spil/{{ g.id }}" data-name="{{ g.search }}" data-k="{{ g.kind }}">
+    <div class="pwrap">
+      {% if !g.poster.is_empty() %}<img loading="lazy" src="{{ g.poster }}" alt="">{% else %}<div class="ph">{{ g.title }}</div>{% endif %}
+      <span class="badge {{ g.kind }}">{{ g.label }}</span>
+    </div>
+    <div class="cap"><b>{{ g.title }}</b><small>{{ g.sub }}</small></div>
+  </a>
+  {% endfor %}
+</div>
+<script>
+const q = document.getElementById('q'), cards = [...document.querySelectorAll('.card')];
+let kind = '';
+function filter() {
+  const t = q.value.trim().toLowerCase(); let n = 0;
+  cards.forEach(c => { const ok = (!t || c.dataset.name.includes(t)) && (!kind || c.dataset.k === kind);
+    c.style.display = ok ? '' : 'none'; n += ok; });
+  document.getElementById('n').textContent = n;
+}
+q.addEventListener('input', filter);
+document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); kind = b.dataset.k; filter(); });
+let was = false;
+async function poll() {
+  const s = await (await fetch('/status')).json();
+  document.getElementById('st').textContent = s.msg || '';
+  document.getElementById('scanbtn').disabled = s.scanning;
+  if (s.scanning) setTimeout(poll, 2000); else if (was) location.reload();
+  was = s.scanning;
+}
+poll();
+</script>
+{% endblock %}

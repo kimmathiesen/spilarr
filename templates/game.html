@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} – Spilarr{% endblock %}
+{% block body %}
+<section class="hero"{% if !hero.is_empty() %} style="background-image:url('{{ hero }}')"{% endif %}>
+  <div class="hero-in">
+    <div class="pwrap big">
+      {% if !poster.is_empty() %}<img src="{{ poster }}" alt=""{% if poster_wide %} class="wide"{% endif %}>{% else %}<div class="ph">{{ title }}</div>{% endif %}
+    </div>
+    <div class="info">
+      <h1>{{ title }} <span class="muted">({{ year }})</span></h1>
+      <p class="sub">
+        <span class="badge {{ kind }} inline">{{ label }}</span>
+        {% if !grp.is_empty() %}<span>{{ grp }}</span>{% endif %}
+        <span>{{ size }}</span>
+        {% if !metacritic.is_empty() %}<span class="mc">Metacritic {{ metacritic }}</span>{% endif %}
+      </p>
+      {% if has_meta %}
+        <p class="genres">{% for x in genres %}<span class="chip">{{ x }}</span>{% endfor %}</p>
+        <p class="short">{{ short }}</p>
+        <p class="muted small">{{ credits }} · <a href="{{ url }}" target="_blank" rel="noopener">Steam-side</a></p>
+      {% else %}
+        <p class="muted">Ingen metadata fundet. Ret match nedenfor.</p>
+      {% endif %}
+      <div class="actions">
+        {% for b in buttons %}<a class="btn{% if b.primary %} primary{% endif %}" href="{{ b.href }}">{{ b.label }}</a>{% endfor %}
+        {% if !note.is_empty() %}<span class="note">{{ note }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+<div class="cols">
+  <div>
+    {% if !about.is_empty() %}<h2>Om spillet</h2><div class="about">{{ about }}</div>{% endif %}
+    {% if !screens.is_empty() %}
+      <h2>Billeder</h2>
+      <div class="shots">{% for s in screens %}<a href="{{ s }}" target="_blank" rel="noopener"><img loading="lazy" src="{{ s }}" alt=""></a>{% endfor %}</div>
+    {% endif %}
+  </div>
+  <aside>
+    <h2>Filer</h2>
+    <p class="mono small">{{ unc_path }}</p>
+    <ul class="files">{% for f in files %}<li>{{ f }}</li>{% endfor %}</ul>
+    {% if !updates.is_empty() %}
+      <h2>Opdateringer</h2>
+      <ul class="files">{% for u in updates %}<li>{{ u }}</li>{% endfor %}</ul>
+      <a class="btn small" href="{{ updates_href }}">📂 Åbn updates</a>
+    {% endif %}
+    <h2>Ret match</h2>
+    <form method="post" action="/spil/{{ id }}/match" class="match">
+      <input name="q" placeholder="Steam-appid, søgetekst eller 'ingen'">
+      <button class="btn">Gem</button>
+    </form>
+    <p class="muted small">Nu: {{ current }}</p>
+  </aside>
+</div>
+{% endblock %}

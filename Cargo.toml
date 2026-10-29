@@ -1,0 +1,25 @@
+[package]
+name = "spilarr"
+version = "0.1.0"
+edition = "2021"
+description = "Radarr-agtigt bibliotek over spil på en Unraid-share med plakater og spil://-installer-links"
+license = "MIT"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "net"] }
+askama = "0.12"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+regex = "1"
+unicode-normalization = "0.1"
+html-escape = "0.2"
+urlencoding = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

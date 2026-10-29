@@ -1,0 +1,143 @@
+//! SQLite-lager. Skemaet er det samme som Python-prototypen brugte.
+use std::collections::HashSet;
+use std::path::Path;
+
+use rusqlite::{params, Connection, Row};
+
+use crate::steam::Meta;
+
+pub fn open(p: &Path) -> rusqlite::Result<Connection> {
+    let c = Connection::open(p)?;
+    c.execute_batch(
+        "pragma journal_mode=wal;
+         create table if not exists games(
+            id integer primary key, rel text unique, title text, year int, grp text, portable int,
+            kind text, isos text, rars text, setups text, updates text, size int, mtime real,
+            added real, seen real, appid int, meta text, locked int default 0, tried real)",
+    )?;
+    Ok(c)
+}
+
+#[derive(Clone)]
+pub struct Game {
+    pub id: i64,
+    pub rel: String,
+    pub title: String,
+    pub year: Option<i64>,
+    pub grp: Option<String>,
+    pub kind: String,
+    pub isos: Vec<String>,
+    pub rars: Vec<String>,
+    pub setups: Vec<String>,
+    pub updates: Vec<String>,
+    pub size: i64,
+    pub appid: Option<i64>,
+    pub meta: Option<Meta>,
+    pub locked: bool,
+}
+
+/// Resultatet af at scanne én spilmappe.
+pub struct Scanned {
+    pub title: String,
+    pub year: Option<i64>,
+    pub grp: Option<String>,
+    pub portable: bool,
+    pub kind: String,
+    pub isos: Vec<String>,
+    pub rars: Vec<String>,
+    pub setups: Vec<String>,
+    pub updates: Vec<String>,
+    pub size: i64,
+    pub mtime: f64,
+}
+
+fn list_col(s: Option<String>) -> Vec<String> {
+    s.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn js(v: &[String]) -> String {
+    serde_json::to_string(v).unwrap_or_else(|_| "[]".into())
+}
+
+fn from_row(r: &Row) -> rusqlite::Result<Game> {
+    Ok(Game {
+        id: r.get("id")?,
+        rel: r.get("rel")?,
+        title: r.get("title")?,
+        year: r.get("year")?,
+        grp: r.get("grp")?,
+        kind: r.get("kind")?,
+        isos: list_col(r.get("isos")?),
+        rars: list_col(r.get("rars")?),
+        setups: list_col(r.get("setups")?),
+        updates: list_col(r.get("updates")?),
+        size: r.get::<_, Option<i64>>("size")?.unwrap_or(0),
+        appid: r.get("appid")?,
+        meta: r.get::<_, Option<String>>("meta")?.and_then(|s| serde_json::from_str(&s).ok()),
+        locked: r.get::<_, Option<i64>>("locked")?.unwrap_or(0) != 0,
+    })
+}
+
+pub fn list(c: &Connection, order: &str) -> rusqlite::Result<Vec<Game>> {
+    let mut s = c.prepare(&format!("select * from games order by {order}"))?;
+    let rows = s.query_map([], from_row)?;
+    rows.collect()
+}
+
+pub fn get(c: &Connection, id: i64) -> Option<Game> {
+    c.query_row("select * from games where id=?1", [id], from_row).ok()
+}
+
+pub fn find(c: &Connection, rel: &str) -> Option<(i64, f64)> {
+    c.query_row("select id, mtime from games where rel=?1", [rel], |r| Ok((r.get(0)?, r.get(1)?)))
+        .ok()
+}
+
+pub fn touch(c: &Connection, id: i64, now: f64) -> rusqlite::Result<()> {
+    c.execute("update games set seen=?1 where id=?2", params![now, id]).map(|_| ())
+}
+
+pub fn save_scanned(c: &Connection, id: Option<i64>, rel: &str, s: &Scanned, now: f64) -> rusqlite::Result<()> {
+    let (isos, rars, setups, updates) = (js(&s.isos), js(&s.rars), js(&s.setups), js(&s.updates));
+    match id {
+        Some(id) => c.execute(
+            "update games set title=?1,year=?2,grp=?3,portable=?4,kind=?5,isos=?6,rars=?7,setups=?8,updates=?9,
+             size=?10,mtime=?11,seen=?12 where id=?13",
+            params![s.title, s.year, s.grp, s.portable as i64, s.kind, isos, rars, setups, updates, s.size, s.mtime, now, id],
+        ),
+        None => c.execute(
+            "insert into games(title,year,grp,portable,kind,isos,rars,setups,updates,size,mtime,seen,rel,added)
+             values(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+            params![s.title, s.year, s.grp, s.portable as i64, s.kind, isos, rars, setups, updates, s.size, s.mtime, now, rel, s.mtime],
+        ),
+    }
+    .map(|_| ())
+}
+
+pub fn delete_missing(c: &Connection, seen: &HashSet<String>) -> rusqlite::Result<usize> {
+    let rels: Vec<String> = c
+        .prepare("select rel from games")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let mut n = 0;
+    for rel in rels.iter().filter(|r| !seen.contains(*r)) {
+        n += c.execute("delete from games where rel=?1", [rel])?;
+    }
+    Ok(n)
+}
+
+/// Spil uden metadata, som ikke er låst og ikke er forsøgt den seneste uge.
+pub fn todo(c: &Connection, before: f64) -> rusqlite::Result<Vec<i64>> {
+    c.prepare("select id from games where locked=0 and meta is null and (tried is null or tried<?1)")?
+        .query_map([before], |r| r.get(0))?
+        .collect()
+}
+
+pub fn set_meta(c: &Connection, id: i64, appid: Option<i64>, meta: Option<&Meta>, locked: bool, now: f64) -> rusqlite::Result<()> {
+    let m = meta.and_then(|m| serde_json::to_string(m).ok());
+    c.execute(
+        "update games set appid=?1, meta=?2, tried=?3, locked=?4 where id=?5",
+        params![appid, m, now, locked as i64, id],
+    )
+    .map(|_| ())
+}

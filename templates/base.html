@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Spilarr{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="logo" href="/">🎮 Spilarr</a>
+    {% block tools %}{% endblock %}
+    <a class="help" href="/windows" title="Windows-hjælper til Installer-knappen">Windows-hjælper</a>
+  </header>
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>

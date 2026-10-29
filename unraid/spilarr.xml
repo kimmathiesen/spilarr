@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>spilarr</Name>
+  <Repository>ghcr.io/kimmathiesen/spilarr:latest</Repository>
+  <Registry>https://github.com/kimmathiesen/spilarr/pkgs/container/spilarr</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/kimmathiesen/spilarr/issues</Support>
+  <Project>https://github.com/kimmathiesen/spilarr</Project>
+  <Overview>Radarr-agtigt bibliotek over spil på en share: plakatvisning, infoside med Steam-metadata og Installer-knap, der mounter ISO'en på en Windows-PC via spil://-links.</Overview>
+  <Category>GameServers: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8790]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/kimmathiesen/spilarr/main/unraid/spilarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/kimmathiesen/spilarr/main/assets/icon.png</Icon>
+  <ExtraParams>--user 99:100</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <Config Name="WebUI" Target="8790" Default="8790" Mode="tcp" Description="Web-UI" Type="Port" Display="always" Required="true" Mask="false">8790</Config>
+  <Config Name="Spil" Target="/games" Default="/mnt/user/data/games" Mode="ro" Description="Mappen med spil (Spilnavn (År) - Gruppe). Kun læseadgang." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/games</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/spilarr" Mode="rw" Description="Database og billed-cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/spilarr</Config>
+  <Config Name="UNC_ROOT" Target="UNC_ROOT" Default="\192.168.68.58\data\games" Mode="" Description="Samme mappe set fra Windows (SMB-sti), bruges af Installer-knappen." Type="Variable" Display="always" Required="true" Mask="false">\192.168.68.58\data\games</Config>
+  <Config Name="SCAN_HOURS" Target="SCAN_HOURS" Default="6" Mode="" Description="Timer mellem automatiske scanninger." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>
+  <Config Name="TZ" Target="TZ" Default="Europe/Copenhagen" Mode="" Description="Tidszone" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Copenhagen</Config>
+</Container>
