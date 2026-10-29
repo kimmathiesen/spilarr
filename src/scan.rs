@@ -13,7 +13,7 @@ use crate::{now, App};
 /// Mapper, der indeholder flere spil i stedet for at være ét.
 const CONTAINERS: [&str; 1] = ["portable"];
 
-fn folders(games: &Path) -> Vec<(PathBuf, bool)> {
+pub fn folders(games: &Path) -> Vec<(PathBuf, bool)> {
     let dirs = |p: &Path| -> Vec<PathBuf> {
         let mut v: Vec<PathBuf> = std::fs::read_dir(p)
             .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())

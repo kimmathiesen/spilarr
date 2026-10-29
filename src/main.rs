@@ -3,6 +3,7 @@ mod db;
 mod import;
 mod scan;
 mod steam;
+mod unpack;
 mod web;
 
 use std::path::PathBuf;
@@ -65,6 +66,10 @@ async fn main() {
         qbit_category: env("QBIT_CATEGORY", "games"),
         import_minutes: env("IMPORT_MINUTES", "5").parse().unwrap_or(5.0),
     };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "unpack") {
+        std::process::exit(unpack::cli(&cfg.games, &args[1..]));
+    }
     std::fs::create_dir_all(cfg.covers()).expect("kan ikke oprette config/covers");
     let conn = db::open(&cfg.config.join("spilarr.db")).expect("kan ikke åbne databasen");
     let app: Shared = Arc::new(App {

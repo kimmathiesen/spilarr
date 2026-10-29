@@ -126,15 +126,15 @@ fn fill(app: &App, src: &Path, tmp: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Some(true) = første volumen, Some(false) = øvrige volumener (.partN.rar, .r00), None = ikke rar.
-fn rar_volume(lf: &str) -> Option<bool> {
+/// Some(true) = første volumen, Some(false) = øvrige volumener (.partN.rar, .r00–.r99, .s00 osv.), None = ikke rar.
+pub fn rar_volume(lf: &str) -> Option<bool> {
     if let Some(c) = Regex::new(r"\.part(\d+)\.rar$").expect("regex").captures(lf) {
         return Some(c[1].parse::<u32>().ok() == Some(1));
     }
     if lf.ends_with(".rar") {
         return Some(true);
     }
-    Regex::new(r"\.r\d{2,3}$").expect("regex").is_match(lf).then_some(false)
+    Regex::new(r"\.[r-z]\d{2,3}$").expect("regex").is_match(lf).then_some(false)
 }
 
 /// Pakker et (evt. flerdelt) rar-arkiv ud i dir.
@@ -222,6 +222,8 @@ mod tests {
         assert_eq!(rar_volume("rune-sh2.part02.rar"), Some(false));
         assert_eq!(rar_volume("game.rar"), Some(true));
         assert_eq!(rar_volume("game.r00"), Some(false));
+        assert_eq!(rar_volume("game.s12"), Some(false));
+        assert_eq!(rar_volume("game.t06"), Some(false));
         assert_eq!(rar_volume("game.iso"), None);
     }
 
