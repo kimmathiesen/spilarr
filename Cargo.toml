@@ -18,6 +18,7 @@ regex = "1"
 unicode-normalization = "0.1"
 html-escape = "0.2"
 urlencoding = "2"
+unrar = "0.5"
 
 [profile.release]
 lto = true

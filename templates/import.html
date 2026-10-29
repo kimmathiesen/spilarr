@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Import – Spilarr{% endblock %}
+{% block body %}
+<div class="page">
+  <h1>Import fra qBittorrent</h1>
+  {% if enabled %}
+  <p class="muted">Færdige torrents i kategorien <b>{{ category }}</b> importeres hvert {{ minutes }}. minut:
+    almindelige filer hardlinkes, rar-arkiver pakkes ud. qB må gerne slette sin kopi efter seeding.</p>
+  <form method="post" action="/import"><button class="btn">Tjek qB nu</button> <span class="muted">{{ msg }}</span></form>
+  {% else %}
+  <p class="note">Import er slået fra – sæt <code>QBIT_URL</code> (fx <code>http://192.168.68.58:8080</code>).</p>
+  {% endif %}
+  <table class="imports">
+    <tr><th>Torrent</th><th>Resultat</th><th>Hvornår</th><th></th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{% if r.ok %}✅ {{ r.dest }}{% else %}❌ {{ r.msg }}{% endif %}</td>
+      <td class="muted">{{ r.when }}</td>
+      <td>{% if !r.ok %}<form method="post" action="/import/{{ r.hash }}/retry"><button class="btn">Prøv igen</button></form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if rows.is_empty() %}<p class="muted">Intet importeret endnu.</p>{% endif %}
+</div>
+{% endblock %}

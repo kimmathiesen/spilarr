@@ -13,7 +13,9 @@ pub fn open(p: &Path) -> rusqlite::Result<Connection> {
          create table if not exists games(
             id integer primary key, rel text unique, title text, year int, grp text, portable int,
             kind text, isos text, rars text, setups text, updates text, size int, mtime real,
-            added real, seen real, appid int, meta text, locked int default 0, tried real)",
+            added real, seen real, appid int, meta text, locked int default 0, tried real);
+         create table if not exists imports(
+            hash text primary key, name text, src text, dest text, ok int, msg text, time real)",
     )?;
     Ok(c)
 }
@@ -140,4 +142,45 @@ pub fn set_meta(c: &Connection, id: i64, appid: Option<i64>, meta: Option<&Meta>
         params![appid, m, now, locked as i64, id],
     )
     .map(|_| ())
+}
+
+pub struct Import {
+    pub hash: String,
+    pub name: String,
+    pub dest: String,
+    pub ok: bool,
+    pub msg: String,
+    pub time: f64,
+}
+
+pub fn imported(c: &Connection, hash: &str) -> bool {
+    c.query_row("select 1 from imports where hash=?1", [hash], |_| Ok(())).is_ok()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn save_import(c: &Connection, hash: &str, name: &str, src: &str, dest: &str, ok: bool, msg: &str, now: f64) -> rusqlite::Result<()> {
+    c.execute(
+        "insert or replace into imports(hash,name,src,dest,ok,msg,time) values(?1,?2,?3,?4,?5,?6,?7)",
+        params![hash, name, src, dest, ok as i64, msg, now],
+    )
+    .map(|_| ())
+}
+
+pub fn imports(c: &Connection) -> rusqlite::Result<Vec<Import>> {
+    c.prepare("select hash,name,dest,ok,msg,time from imports order by time desc limit 100")?
+        .query_map([], |r| {
+            Ok(Import {
+                hash: r.get(0)?,
+                name: r.get(1)?,
+                dest: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ok: r.get::<_, i64>(3)? != 0,
+                msg: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                time: r.get(5)?,
+            })
+        })?
+        .collect()
+}
+
+pub fn forget_import(c: &Connection, hash: &str) -> rusqlite::Result<()> {
+    c.execute("delete from imports where hash=?1", [hash]).map(|_| ())
 }

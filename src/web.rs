@@ -8,7 +8,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::db::{self, Game};
-use crate::{scan, Shared};
+use crate::{import, scan, Shared};
 
 const KINDS: [(&str, &str); 5] =
     [("iso", "ISO"), ("rar", "RAR"), ("setup", "Installer"), ("portable", "Portable"), ("mappe", "Mappe")];
@@ -26,6 +26,8 @@ pub fn router(app: Shared) -> Router {
         .route("/spil/{id}/match", post(rematch))
         .route("/scan", post(scan_now))
         .route("/status", get(status))
+        .route("/import", get(imports).post(import_now))
+        .route("/import/{hash}/retry", post(retry))
         .route("/img/{appid}/{kind}", get(img))
         .route("/windows", get(windows))
         .route("/windows/{name}", get(windows_file))
@@ -167,7 +169,7 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
                 buttons.push(Btn { href: spil("run", f), label, primary: i == 0 });
             }
         }
-        "rar" => note = "Kun rar-filer – kan ikke mountes endnu (udpakning kommer i fase 2).".into(),
+        "rar" => note = "Kun rar-filer – kan ikke mountes endnu (udpakning af gamle mapper kommer i fase 3).".into(),
         _ => {}
     }
     buttons.push(Btn { href: spil("open", &g.rel), label: "📂 Åbn mappe".into(), primary: false });
@@ -236,6 +238,61 @@ async fn scan_now(State(app): State<Shared>, Form(f): Form<ScanF>) -> Redirect {
     let force = f.force.is_some_and(|v| v == "1");
     tokio::task::spawn_blocking(move || scan::scan(&app, force));
     Redirect::to("/")
+}
+
+struct ImportRow {
+    hash: String,
+    name: String,
+    dest: String,
+    ok: bool,
+    msg: String,
+    when: String,
+}
+
+#[derive(Template)]
+#[template(path = "import.html")]
+struct ImportT {
+    rows: Vec<ImportRow>,
+    enabled: bool,
+    category: String,
+    minutes: String,
+    msg: String,
+}
+
+fn ago(t: f64) -> String {
+    let m = ((crate::now() - t) / 60.0).max(0.0) as i64;
+    match m {
+        0 => "lige nu".into(),
+        1..=59 => format!("{m} min siden"),
+        60..=2879 => format!("{} t siden", m / 60),
+        _ => format!("{} dage siden", m / 1440),
+    }
+}
+
+async fn imports(State(app): State<Shared>) -> Response {
+    let rows = db::imports(&app.db.lock().unwrap())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|i| ImportRow { when: ago(i.time), hash: i.hash, name: i.name, dest: i.dest, ok: i.ok, msg: i.msg })
+        .collect();
+    render(ImportT {
+        rows,
+        enabled: !app.cfg.qbit_url.is_empty(),
+        category: app.cfg.qbit_category.clone(),
+        minutes: app.cfg.import_minutes.to_string(),
+        msg: app.status.lock().unwrap().msg.clone(),
+    })
+}
+
+async fn import_now(State(app): State<Shared>) -> Redirect {
+    tokio::task::spawn_blocking(move || import::run(&app));
+    Redirect::to("/import")
+}
+
+async fn retry(State(app): State<Shared>, Path(hash): Path<String>) -> Redirect {
+    let _ = db::forget_import(&app.db.lock().unwrap(), &hash);
+    tokio::task::spawn_blocking(move || import::run(&app));
+    Redirect::to("/import")
 }
 
 async fn status(State(app): State<Shared>) -> Json<crate::Status> {

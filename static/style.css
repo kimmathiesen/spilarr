@@ -77,3 +77,6 @@ code { padding: 1px 5px; }
   .cols { grid-template-columns: 1fr; }
   #q { width: 100%; }
 }
+.imports { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
+.imports th, .imports td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #ffffff14; vertical-align: top; }
+.imports td:first-child { word-break: break-all; }

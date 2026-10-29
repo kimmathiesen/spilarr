@@ -1,6 +1,7 @@
 # Byg
 FROM rust:1-slim-bookworm AS build
 WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock* ./
 COPY src src
 COPY templates templates

@@ -93,13 +93,23 @@ fn set_msg(app: &App, msg: impl Into<String>) {
 }
 
 pub fn scan(app: &App, force: bool) {
-    let Ok(_guard) = app.scan_lock.try_lock() else { return };
+    let Ok(guard) = app.scan_lock.try_lock() else { return };
+    run(app, force, guard);
+}
+
+/// Som scan, men venter, hvis en scanning allerede kører (bruges efter import).
+pub fn scan_wait(app: &App) {
+    let guard = app.scan_lock.lock().unwrap();
+    run(app, false, guard);
+}
+
+fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
     {
         let mut s = app.status.lock().unwrap();
         s.scanning = true;
         s.msg = "Scanner mapper".into();
     }
-    let name_re = Regex::new(r"^(?P<title>.+?) \((?P<year>\d{4})\)(?: - (?P<group>.+))?$").expect("regex");
+    let name_re = Regex::new(r"^(?P<title>.+?)(?: \((?P<year>\d{4})\))?(?: - (?P<group>[^-()]+))?$").expect("regex");
     let games = &app.cfg.games;
     let t = now();
     let mut seen = HashSet::new();
@@ -120,7 +130,7 @@ pub fn scan(app: &App, force: bool) {
         }
         set_msg(app, format!("Scanner {name}"));
         let (title, year, grp) = match name_re.captures(&name) {
-            Some(c) => (c["title"].to_string(), c["year"].parse().ok(), c.name("group").map(|g| g.as_str().to_string())),
+            Some(c) => (c["title"].to_string(), c.name("year").and_then(|y| y.as_str().parse().ok()), c.name("group").map(|g| g.as_str().to_string())),
             None => (name.clone(), None, None),
         };
         let (isos, rars, setups, updates, size) = analyze(games, &d);
