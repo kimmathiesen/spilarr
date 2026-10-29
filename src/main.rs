@@ -14,6 +14,8 @@ pub struct Config {
     pub games: PathBuf,
     pub config: PathBuf,
     pub unc_root: String,
+    /// Spilmappen på Linux-klienter, hvis install.sh ikke selv finder den.
+    pub linux_root: String,
     pub scan_hours: f64,
     /// Tom = import fra qBittorrent er slået fra.
     pub qbit_url: String,
@@ -61,6 +63,7 @@ async fn main() {
         games: env("GAMES_DIR", "/games").into(),
         config: env("CONFIG_DIR", "/config").into(),
         unc_root: env("UNC_ROOT", r"\\192.168.68.58\data\games"),
+        linux_root: env("LINUX_ROOT", "/mnt/spil"),
         scan_hours: env("SCAN_HOURS", "6").parse().unwrap_or(6.0),
         qbit_url: env("QBIT_URL", ""),
         qbit_category: env("QBIT_CATEGORY", "games"),

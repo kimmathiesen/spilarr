@@ -7,6 +7,7 @@ COPY src src
 COPY templates templates
 COPY static static
 COPY windows windows
+COPY linux linux
 RUN cargo build --release --locked
 
 # Kør

@@ -83,6 +83,24 @@ Handleren kan:
 
 Den afviser stier uden for `UNC_ROOT`. Windows skal kunne nå sharen, så åbn den én gang i Stifinder og gem login.
 
+## Linux-hjælperen (CachyOS, steam-headless m.fl.)
+
+```sh
+curl -fsSL http://<tower>:8790/linux/install.sh | sh
+```
+
+Scriptet installerer [linux/spil-handler.sh](linux/spil-handler.sh) i `~/.local/share/spilarr` og registrerer `x-scheme-handler/spil` med `xdg-mime`. Det kræver ikke root.
+
+- **Spilmappen** findes automatisk:
+  - `/mnt/torrents` i steam-headless.
+  - `/mnt/spil`.
+  - Et `gio mount smb://<tower>/data`.
+  - Du kan også angive den som argument: `… | sh -s -- /sti`.
+
+  Stien gemmes i `~/.config/spilarr.conf` som `SPIL_ROOT`.
+- **ISO** mountes med `udisksctl`. Uden loop-enheder, fx i containere, bruges `fuseiso` eller `archivemount`.
+- **`.exe`** køres med Proton via `umu-run`, ellers med `wine`. Hvert spil får sit eget prefix i `~/Games/spilarr/<spilmappe>`.
+
 ## Udvikling
 
 ```bash

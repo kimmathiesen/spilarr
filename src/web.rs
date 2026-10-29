@@ -31,6 +31,7 @@ pub fn router(app: Shared) -> Router {
         .route("/img/{appid}/{kind}", get(img))
         .route("/windows", get(windows))
         .route("/windows/{name}", get(windows_file))
+        .route("/linux/{name}", get(linux_file))
         .route("/static/style.css", get(css))
         .with_state(app)
 }
@@ -330,6 +331,24 @@ async fn windows_file(State(app): State<Shared>, h: HeaderMap, Path(name): Path<
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     let body = src.replace("__SERVER__", &server(&h)).replace("__UNC_ROOT__", &app.cfg.unc_root);
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
+}
+
+/// Værten i UNC_ROOT (\\vært\share\…), bruges til smb://-mount på Linux.
+fn smb_host(unc: &str) -> String {
+    unc.trim_start_matches('\\').split('\\').next().unwrap_or_default().to_string()
+}
+
+async fn linux_file(State(app): State<Shared>, h: HeaderMap, Path(name): Path<String>) -> Response {
+    let src = match name.as_str() {
+        "install.sh" => include_str!("../linux/install.sh"),
+        "spil-handler.sh" => include_str!("../linux/spil-handler.sh"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let body = src
+        .replace("__SERVER__", &server(&h))
+        .replace("__LINUX_ROOT__", &app.cfg.linux_root)
+        .replace("__SMB_HOST__", &smb_host(&app.cfg.unc_root));
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
 }
 
