@@ -21,7 +21,7 @@
   <Config Name="WebUI" Target="8790" Default="8790" Mode="tcp" Description="Web-UI" Type="Port" Display="always" Required="true" Mask="false">8790</Config>
   <Config Name="Spil" Target="/games" Default="/mnt/user/data/games" Mode="ro" Description="Mappen med spil (Spilnavn (År) - Gruppe). Kun læseadgang." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/games</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/spilarr" Mode="rw" Description="Database og billed-cache." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/spilarr</Config>
-  <Config Name="UNC_ROOT" Target="UNC_ROOT" Default="\192.168.68.58\data\games" Mode="" Description="Samme mappe set fra Windows (SMB-sti), bruges af Installer-knappen." Type="Variable" Display="always" Required="true" Mask="false">\192.168.68.58\data\games</Config>
+  <Config Name="UNC_ROOT" Target="UNC_ROOT" Default="\\192.168.68.58\data\games" Mode="" Description="Samme mappe set fra Windows (SMB-sti), bruges af Installer-knappen." Type="Variable" Display="always" Required="true" Mask="false">\\192.168.68.58\data\games</Config>
   <Config Name="SCAN_HOURS" Target="SCAN_HOURS" Default="6" Mode="" Description="Timer mellem automatiske scanninger." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>
   <Config Name="TZ" Target="TZ" Default="Europe/Copenhagen" Mode="" Description="Tidszone" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Copenhagen</Config>
 </Container>
