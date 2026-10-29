@@ -98,7 +98,10 @@ Scriptet installerer [linux/spil-handler.sh](linux/spil-handler.sh) i `~/.local/
   - Du kan også angive den som argument: `… | sh -s -- /sti`.
 
   Stien gemmes i `~/.config/spilarr.conf` som `SPIL_ROOT`.
-- **ISO** mountes med `udisksctl`. Uden loop-enheder, fx i containere, bruges `fuseiso` eller `archivemount`.
+- **ISO** mountes med `udisksctl`, og en `setup.exe` i roden startes automatisk.
+  - Uden loop-enheder, fx i steam-headless, pakkes ISO'en ud med `7z` til `~/Games/spilarr/.iso/`.
+  - **Afmonter** sletter udpakningen igen.
+  - Spil-ISO'er er UDF, og det kan `fuseiso` og `archivemount` ikke læse.
 - **`.exe`** køres med Proton via `umu-run`, ellers med `wine`. Hvert spil får sit eget prefix i `~/Games/spilarr/<spilmappe>`.
 
 ## Udvikling

@@ -44,5 +44,5 @@ command -v update-desktop-database >/dev/null && update-desktop-database "$DIR/a
 echo "Spilarr-hjælper installeret i $DIR/spilarr"
 echo "Spilmappe: $root (ret i $CONF)"
 [ -d "$root" ] || echo "ADVARSEL: $root findes ikke endnu – mount sharen og ret SPIL_ROOT."
-for t in udisksctl fuseiso archivemount umu-run wine; do command -v $t >/dev/null && echo "  fundet: $t"; done
+for t in udisksctl 7z umu-run wine; do command -v $t >/dev/null && echo "  fundet: $t"; done
 true

@@ -16,7 +16,7 @@
   <p><a href="/windows/spil-handler.ps1">Se spil-handler.ps1</a> · <a href="/windows/install.ps1">Se install.ps1</a></p>
 
   <h1>Linux-hjælper</h1>
-  <p>Samme knapper på Linux (fx CachyOS eller steam-headless). ISO'er mountes med <code>udisksctl</code> eller – i containere uden loop-enheder – med <code>fuseiso</code>/<code>archivemount</code>. <code>.exe</code>-filer køres med Proton via <code>umu-run</code> (ellers <code>wine</code>) i ét prefix pr. spil under <code>~/Games/spilarr/</code>.</p>
+  <p>Samme knapper på Linux (fx CachyOS eller steam-headless). ISO'er mountes med <code>udisksctl</code>. I containere uden loop-enheder (steam-headless) pakkes ISO'en i stedet ud med <code>7z</code> til <code>~/Games/spilarr/.iso/</code> og slettes igen med <b>Afmonter</b> – spil-ISO'er er UDF, som FUSE-værktøjer ikke kan læse. Har ISO'en en <code>setup.exe</code>, startes den automatisk. <code>.exe</code>-filer køres med Proton via <code>umu-run</code> (ellers <code>wine</code>) i ét prefix pr. spil under <code>~/Games/spilarr/</code>.</p>
   <h2>Installation (én gang pr. bruger, ingen root)</h2>
   <pre>curl -fsSL {{ server }}/linux/install.sh | sh</pre>
   <p>Den finder selv spilmappen (<code>/mnt/torrents</code> i steam-headless, <code>/mnt/spil</code> eller et <code>gio</code>-mount af <code>smb://…/data</code>). Angiv den ellers som argument: <code>… | sh -s -- /sti/til/games</code>. Indstillingen ligger i <code>~/.config/spilarr.conf</code>.</p>
