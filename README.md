@@ -112,6 +112,15 @@ Spillets side har også knapper til at hente spillet direkte, fx via Tailscale, 
 
 Spilarr har intet login. Download-ruterne skal derfor ikke gøres offentlige uden en adgangskontrol foran, fx Cloudflare Access.
 
+## SpilarrOS-klienten (Raspberry Pi)
+
+`spilarr klient` gør en Raspberry Pi til et download-apparat, der kan tages med ud: den viser biblioteket fra serveren i en fuldskærms-kiosk og henter ISO'er eller hele mapper ned på en USB-disk.
+- Læser `GET /api/spil` fra serveren og gemmer listen og plakaterne lokalt.
+- Download-kø med genoptagelse (ISO via `Range`), automatisk nyt forsøg ved fejl, pladstjek og FAT32-advarsel.
+- Variabler: `SERVER` (standard `http://192.168.68.58:8790`), `DOWNLOAD_DIR` (`/media/spildisk`), `STATE_DIR` (`/var/lib/spilarr-klient`), `PORT` (`8080`), `BIND` (`127.0.0.1`).
+- arm64-build ligger på releasen [`spilarros`](https://github.com/kimmathiesen/spilarr/releases/tag/spilarros) og bygges ved hvert push til `main`.
+- Opsætning af selve Pi'en (kiosk, Tailscale, automount af disk) ligger i homelab-repoet under `raspberrypi/spilarros`.
+
 ## Udvikling
 
 ```bash

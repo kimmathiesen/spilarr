@@ -2,6 +2,7 @@
 mod db;
 mod download;
 mod import;
+mod klient;
 mod scan;
 mod steam;
 mod unpack;
@@ -71,6 +72,9 @@ async fn main() {
         import_minutes: env("IMPORT_MINUTES", "5").parse().unwrap_or(5.0),
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "klient") {
+        return klient::run(klient::Cfg::from_env()).await;
+    }
     if args.first().is_some_and(|a| a == "unpack") {
         std::process::exit(unpack::cli(&cfg.games, &args[1..]));
     }

@@ -28,6 +28,7 @@ pub fn router(app: Shared) -> Router {
         .route("/spil/{id}/zip", get(download::folder))
         .route("/scan", post(scan_now))
         .route("/status", get(status))
+        .route("/api/spil", get(api_games))
         .route("/import", get(imports).post(import_now))
         .route("/import/{hash}/retry", post(retry))
         .route("/img/{appid}/{kind}", get(img))
@@ -310,6 +311,46 @@ async fn retry(State(app): State<Shared>, Path(hash): Path<String>) -> Redirect 
 
 async fn status(State(app): State<Shared>) -> Json<crate::Status> {
     Json(app.status.lock().unwrap().clone())
+}
+
+/// Biblioteket som JSON til SpilarrOS-klienten.
+#[derive(serde::Serialize)]
+pub struct ApiGame {
+    pub id: i64,
+    pub rel: String,
+    pub title: String,
+    pub year: Option<i64>,
+    pub grp: Option<String>,
+    pub kind: String,
+    pub label: String,
+    pub size: i64,
+    pub isos: Vec<String>,
+    pub poster: String,
+    pub poster_wide: bool,
+    pub genres: Vec<String>,
+    pub short: String,
+}
+
+async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
+    let games = db::list(&app.db.lock().unwrap(), "title collate nocase").unwrap_or_default();
+    Json(games.iter().map(|g| {
+        let m = g.meta.clone().unwrap_or_default();
+        ApiGame {
+            id: g.id,
+            rel: g.rel.clone(),
+            title: g.title.clone(),
+            year: g.year,
+            grp: g.grp.clone(),
+            kind: g.kind.clone(),
+            label: label(&g.kind),
+            size: g.size,
+            isos: g.isos.clone(),
+            poster: img_url(&app, g, "poster"),
+            poster_wide: m.poster_wide,
+            genres: m.genres,
+            short: m.short,
+        }
+    }).collect())
 }
 
 async fn img(State(app): State<Shared>, Path((appid, kind)): Path<(i64, String)>) -> Response {

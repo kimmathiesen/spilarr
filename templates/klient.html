@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpilarrOS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    html, body { height: 100%; overflow: hidden; user-select: none; }
+    body { display: flex; flex-direction: column; }
+    main { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+    .top .right { margin-left: auto; display: flex; gap: 8px; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .pwrap { box-shadow: none; transition: none; }
+    .card { cursor: pointer; }
+    /* spillets boks */
+    #ov { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 20; }
+    #ov.on { display: flex; }
+    .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; display: flex; gap: 24px;
+      width: min(900px, 94vw); max-height: 90vh; overflow-y: auto; }
+    .box .pwrap { width: 200px; flex: none; }
+    .box h1 { margin: 0 0 6px; font-size: 26px; }
+    .box .x { margin-left: auto; }
+    .dlbtns { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; margin-top: 18px; }
+    /* bundlinje og kø */
+    .bar { background: #15171b; border-top: 1px solid var(--line); padding: 8px 20px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+    .bar .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #c0563f; }
+    .bar .dot.ok { background: #3fa66b; }
+    .bar .q { margin-left: auto; }
+    #jobs { display: none; max-height: 42vh; overflow-y: auto; background: #15171b; border-top: 1px solid var(--line); padding: 4px 20px 12px; }
+    #jobs.on { display: block; }
+    .job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .job b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job .acts { grid-row: span 3; display: flex; gap: 6px; align-items: center; }
+    .prog { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .prog i { display: block; height: 100%; background: var(--accent); }
+    .prog.ok i { background: #3fa66b; }
+    .prog.err i { background: #c0563f; }
+    #toast { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); background: var(--accent); color: #111; font-weight: 600;
+      padding: 10px 18px; border-radius: 8px; display: none; z-index: 30; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <span class="logo">🎮 SpilarrOS</span>
+    <input id="q" type="search" placeholder="Søg…" autocomplete="off">
+    <div class="chips" id="kinds">
+      <button class="chip on" data-k="">Alle</button>
+      <button class="chip" data-k="iso">ISO</button>
+      <button class="chip" data-k="setup">Installer</button>
+      <button class="chip" data-k="portable">Portable</button>
+    </div>
+    <div class="right">
+      <button class="btn" id="eject">⏏ Skub disk ud</button>
+      <button class="btn" id="off">⏻ Sluk</button>
+    </div>
+  </header>
+  <main>
+    <p class="muted count"><span id="n">…</span> spil</p>
+    <div class="grid" id="grid"></div>
+  </main>
+  <div id="jobs"></div>
+  <footer class="bar">
+    <span><span class="dot" id="sdot"></span><span id="stxt">Forbinder…</span></span>
+    <span><span class="dot" id="ddot"></span><span id="dtxt">Disk…</span></span>
+    <button class="btn small q" id="qbtn">Downloads</button>
+  </footer>
+  <div id="ov"><div class="box" id="box"></div></div>
+  <div id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gb = b => (b / 1e9).toFixed(1) + ' GB';
+const dur = s => s < 60 ? Math.round(s) + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' t ' + Math.round(s % 3600 / 60) + ' min';
+let games = [], kind = '', last = null;
+
+function toast(t) { const e = $('#toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(e.t); e.t = setTimeout(() => e.style.display = 'none', 4000); }
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || r.statusText);
+  return t;
+}
+
+function poster(g) {
+  return g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`;
+}
+
+function render() {
+  const t = $('#q').value.trim().toLowerCase();
+  const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || g.kind === kind));
+  $('#n').textContent = list.length;
+  $('#grid').innerHTML = list.map(g => `<div class="card" data-id="${g.id}"><div class="pwrap">${poster(g)}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span></div>
+    <div class="cap"><b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></div></div>`).join('');
+}
+
+function open(id) {
+  const g = games.find(x => x.id == id); if (!g) return;
+  const name = f => f.split('/').pop();
+  const btns = g.isos.map(f => `<button class="btn primary" data-f="${esc(f)}">⤓ Hent ${g.isos.length > 1 ? esc(name(f)) : 'ISO'}</button>`).join('')
+    + `<button class="btn${g.isos.length ? '' : ' primary'}" data-f="">⤓ Hent hele mappen som zip (${gb(g.size)})</button>`;
+  $('#box').innerHTML = `<div class="pwrap">${poster(g)}</div><div style="flex:1;min-width:0">
+    <div style="display:flex"><h1>${esc(g.title)} <span class="muted">(${g.year || '?'})</span></h1><button class="btn x" id="close">✕</button></div>
+    <p class="sub"><span class="badge ${esc(g.kind)} inline">${esc(g.label)}</span>${g.grp ? `<span>${esc(g.grp)}</span>` : ''}<span>${gb(g.size)}</span></p>
+    <p class="genres">${g.genres.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</p>
+    <p class="short">${esc(g.short)}</p>
+    <div class="dlbtns">${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
+  $('#ov').classList.add('on');
+  $('#close').onclick = () => $('#ov').classList.remove('on');
+  document.querySelectorAll('.dlbtns button').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await post('/api/hent', { id: g.id, f: b.dataset.f || null }); toast('Lagt i kø: ' + b.textContent.replace('⤓ ', '')); $('#ov').classList.remove('on'); $('#jobs').classList.add('on'); poll(); }
+    catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
+
+function jobHtml(j) {
+  const pct = j.size ? Math.min(100, j.done / j.size * 100) : 0;
+  let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl' }[j.state];
+  if (j.state === 'henter') st += ` · ${gb(j.done)} af ${gb(j.size)} · ${(j.speed / 1e6).toFixed(1)} MB/s` + (j.eta ? ` · ${dur(j.eta)} tilbage` : '');
+  else if (j.state !== 'faerdig') st += ` · ${gb(j.done)} af ${gb(j.size)}`;
+  const cls = j.state === 'faerdig' ? 'ok' : j.state === 'fejl' ? 'err' : '';
+  const acts = (j.state === 'fejl' ? `<button class="btn small" data-a="igen" data-n="${j.n}">Prøv igen</button>` : '')
+    + `<button class="btn small" data-a="fjern" data-n="${j.n}">${j.state === 'faerdig' ? 'Skjul' : 'Fjern'}</button>`;
+  return `<div class="job"><b>${esc(j.title)} – ${esc(j.file)}</b><div class="acts">${acts}</div>
+    <div class="prog ${cls}"><i style="width:${pct}%"></i></div><small class="muted">${st}${j.msg ? ' · ' + esc(j.msg) : ''}</small></div>`;
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch('/api/status')).json(); last = s;
+    $('#sdot').className = 'dot' + (s.server_ok ? ' ok' : '');
+    $('#stxt').textContent = s.server_ok ? 'Forbundet hjem' : (s.server_msg || 'Forbinder…');
+    const d = s.disk;
+    $('#ddot').className = 'dot' + (d.ok && d.fs !== 'vfat' ? ' ok' : '');
+    $('#dtxt').textContent = d.ok ? `Disk (${d.fs}): ${gb(d.free)} fri af ${gb(d.total)}${d.msg ? ' – ' + d.msg : ''}` : d.msg;
+    const act = s.jobs.filter(j => j.state !== 'faerdig'), cur = s.jobs.find(j => j.state === 'henter');
+    $('#qbtn').textContent = 'Downloads' + (act.length ? ` (${act.length})` : '') + (cur ? ` · ${Math.floor(cur.done / cur.size * 100)} %` : '');
+    $('#jobs').innerHTML = s.jobs.length ? s.jobs.slice().reverse().map(jobHtml).join('') : '<p class="muted">Ingen downloads endnu. Vælg et spil og tryk Hent.</p>';
+  } catch (e) { $('#stxt').textContent = 'Klienten svarer ikke'; }
+}
+
+$('#jobs').onclick = async e => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  if (b.dataset.a === 'fjern' && b.textContent === 'Fjern' && !confirm('Stop og slet den ufærdige download?')) return;
+  try { await post(`/api/job/${b.dataset.n}/${b.dataset.a}`); poll(); } catch (err) { toast(err.message); }
+};
+$('#qbtn').onclick = () => $('#jobs').classList.toggle('on');
+$('#grid').onclick = e => { const c = e.target.closest('.card'); if (c) open(c.dataset.id); };
+$('#ov').onclick = e => { if (e.target.id === 'ov') $('#ov').classList.remove('on'); };
+$('#q').oninput = render;
+document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); kind = b.dataset.k; render(); });
+$('#eject').onclick = async () => { try { toast(await post('/api/udskub')); poll(); } catch (e) { toast(e.message); } };
+$('#off').onclick = async () => {
+  if (last && last.jobs.some(j => j.state === 'henter') && !confirm('Der hentes stadig. Downloaden fortsætter næste gang. Sluk?')) return;
+  if (!confirm('Sluk SpilarrOS?')) return;
+  try { toast(await post('/api/sluk')); } catch (e) { toast(e.message); }
+};
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+async function load() {
+  try { games = await (await fetch('/api/spil')).json(); } catch (e) { games = []; }
+  render();
+  if (!games.length) setTimeout(load, 10000);
+}
+load(); poll(); setInterval(poll, 2000);
+setInterval(load, 30 * 60 * 1000);
+</script>
+</body>
+</html>
