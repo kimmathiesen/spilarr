@@ -54,6 +54,7 @@ Opdateringer kommer via Unraids **Check for updates**. Hvert push til `main` byg
 |---|---|---|
 | `/data` | `/mnt/user/data` | Hele data-sharen med samme sti som i qBittorrent, så hardlinks virker. |
 | `GAMES_DIR` | `/games` (template: `/data/games`) | Spilmappen inde i containeren. |
+| `SOFTWARE_DIR` | tom (template: `/data/software`) | Programmer, der ikke er spil. Hver undermappe bliver ét program under fanen **Software**, uden Steam-opslag. De kan hentes med ISO og zip, men ikke åbnes med `spil://`. |
 | `QBIT_URL` | tom | qB Web-UI, fx `http://192.168.68.58:8080`. Tom slår import fra. |
 | `QBIT_CATEGORY` | `games` | Kategorien, der importeres. Den skal gemme uden for spilmappen, fx `/data/torrents/games`. |
 | `IMPORT_MINUTES` | `5` | Antal minutter mellem tjek af qB. |

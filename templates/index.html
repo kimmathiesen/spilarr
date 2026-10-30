@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block tools %}
+  {% if has_software || software %}
+  <nav class="tabs"><a href="/"{% if !software %} class="on"{% endif %}>Spil</a><a href="/?fane=software"{% if software %} class="on"{% endif %}>Software</a></nav>
+  {% endif %}
   <input id="q" type="search" placeholder="Søg…" autocomplete="off">
-  <div class="chips" id="kinds">
+  <div class="chips" id="kinds"{% if software %} style="display:none"{% endif %}>
     <button class="chip on" data-k="">Alle</button>
     {% for k in kinds %}<button class="chip" data-k="{{ k.key }}">{{ k.label }}</button>{% endfor %}
   </div>
   <form method="get" class="sort">
+    {% if software %}<input type="hidden" name="fane" value="software">{% endif %}
     <select name="sort" onchange="this.form.submit()">
       {% for s in sorts %}<option value="{{ s.key }}"{% if s.on %} selected{% endif %}>{{ s.label }}</option>{% endfor %}
     </select>
@@ -14,7 +18,7 @@
   <span id="st" class="muted">{{ msg }}</span>
 {% endblock %}
 {% block body %}
-<p class="muted count"><span id="n">{{ cards.len() }}</span> spil</p>
+<p class="muted count"><span id="n">{{ cards.len() }}</span> {% if software %}programmer{% else %}spil{% endif %}</p>
 <div class="grid" id="grid">
   {% for g in cards %}
   <a class="card" href="/spil/{{ g.id }}" data-name="{{ g.search }}" data-k="{{ g.kind }}">

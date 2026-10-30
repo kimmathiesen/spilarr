@@ -130,7 +130,7 @@ pub fn delete_missing(c: &Connection, seen: &HashSet<String>) -> rusqlite::Resul
 
 /// Spil uden metadata, som ikke er låst og ikke er forsøgt den seneste uge.
 pub fn todo(c: &Connection, before: f64) -> rusqlite::Result<Vec<i64>> {
-    c.prepare("select id from games where locked=0 and meta is null and (tried is null or tried<?1)")?
+    c.prepare("select id from games where locked=0 and meta is null and kind!='software' and (tried is null or tried<?1)")?
         .query_map([before], |r| r.get(0))?
         .collect()
 }

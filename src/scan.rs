@@ -142,6 +142,9 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
             eprintln!("kan ikke gemme {r}: {e}");
         }
     }
+    if let Some(sw) = &app.cfg.software {
+        scan_software(app, sw, force, t, &mut seen);
+    }
     // Fjern spil, hvis mappe er væk – men aldrig alt på én gang (fx hvis arrayet er stoppet).
     let todo = {
         let c = app.db.lock().unwrap();
@@ -159,6 +162,47 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
     s.scanning = false;
     s.last = Some(now());
     s.msg.clear();
+}
+
+/// Hver mappe i SOFTWARE_DIR er ét program. Ingen metadata; ISO'er findes, så de kan hentes enkeltvis.
+fn scan_software(app: &App, sw: &Path, force: bool, t: f64, seen: &mut HashSet<String>) {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(sw)
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+        .unwrap_or_default();
+    dirs.retain(|p| !p.file_name().unwrap_or_default().to_string_lossy().starts_with('.'));
+    dirs.sort();
+    for d in dirs {
+        let name = d.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let r = format!("{}{name}", crate::SOFTWARE);
+        seen.insert(r.clone());
+        let mtime = std::fs::metadata(&d)
+            .and_then(|m| m.modified())
+            .map(|m| m.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64())
+            .unwrap_or(0.0);
+        let old = db::find(&app.db.lock().unwrap(), &r);
+        if let Some((id, omt)) = old {
+            if (omt - mtime).abs() < 0.001 && !force {
+                let _ = db::touch(&app.db.lock().unwrap(), id, t);
+                continue;
+            }
+        }
+        set_msg(app, format!("Scanner {name}"));
+        let (mut isos, mut size) = (vec![], 0i64);
+        for e in WalkDir::new(&d).into_iter().flatten().filter(|e| e.file_type().is_file()) {
+            size += e.metadata().map(|m| m.len() as i64).unwrap_or(0);
+            if e.file_name().to_string_lossy().to_lowercase().ends_with(".iso") {
+                isos.push(format!("{}{}", crate::SOFTWARE, rel(sw, e.path())));
+            }
+        }
+        isos.sort();
+        let s = Scanned {
+            kind: "software".into(), title: name, year: None, grp: None, portable: false,
+            isos, rars: vec![], setups: vec![], updates: vec![], size, mtime,
+        };
+        if let Err(e) = db::save_scanned(&app.db.lock().unwrap(), old.map(|o| o.0), &r, &s, t) {
+            eprintln!("kan ikke gemme {r}: {e}");
+        }
+    }
 }
 
 fn save_images(app: &App, m: &mut Meta) {

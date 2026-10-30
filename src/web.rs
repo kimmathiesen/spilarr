@@ -47,6 +47,9 @@ fn render<T: Template>(t: T) -> Response {
 }
 
 fn label(kind: &str) -> String {
+    if kind == "software" {
+        return "Software".into();
+    }
     KINDS.iter().find(|k| k.0 == kind).map_or(kind, |k| k.1).to_string()
 }
 
@@ -88,23 +91,33 @@ struct IndexT {
     kinds: Vec<Opt>,
     sorts: Vec<Opt>,
     msg: String,
+    software: bool,
+    has_software: bool,
 }
 
 #[derive(Deserialize)]
 struct SortQ {
     sort: Option<String>,
+    fane: Option<String>,
 }
 
 async fn index(State(app): State<Shared>, Query(q): Query<SortQ>) -> Response {
     let sort = q.sort.unwrap_or_else(|| "navn".into());
     let order = SORTS.iter().find(|s| s.0 == sort).unwrap_or(&SORTS[0]).2;
+    let software = q.fane.as_deref() == Some("software");
     let games = db::list(&app.db.lock().unwrap(), order).unwrap_or_default();
+    let has_software = games.iter().any(|g| g.kind == "software");
     let cards = games
         .iter()
+        .filter(|g| (g.kind == "software") == software)
         .map(|g| Card {
             id: g.id,
             title: g.title.clone(),
-            sub: [g.year.map(|y| y.to_string()), g.grp.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · "),
+            sub: if g.kind == "software" {
+                format!("{:.1} GB", g.size as f64 / 1e9)
+            } else {
+                [g.year.map(|y| y.to_string()), g.grp.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+            },
             kind: g.kind.clone(),
             label: label(&g.kind),
             poster: img_url(&app, g, "poster"),
@@ -114,7 +127,7 @@ async fn index(State(app): State<Shared>, Query(q): Query<SortQ>) -> Response {
     let kinds = KINDS.iter().map(|k| Opt { key: k.0.into(), label: k.1.into(), on: false }).collect();
     let sorts = SORTS.iter().map(|s| Opt { key: s.0.into(), label: s.1.into(), on: s.0 == sort }).collect();
     let msg = app.status.lock().unwrap().msg.clone();
-    render(IndexT { cards, kinds, sorts, msg })
+    render(IndexT { cards, kinds, sorts, msg, software, has_software })
 }
 
 struct Btn {
@@ -152,6 +165,7 @@ struct GameT {
     updates: Vec<String>,
     updates_href: String,
     current: String,
+    software: bool,
 }
 
 async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
@@ -175,9 +189,13 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
             }
         }
         "rar" => note = "Kun rar-filer – kan ikke mountes. Pak dem ud med spilarr unpack.".into(),
+        "software" => note = "Program – hent det nedenfor, eller åbn stien under Filer i Stifinder.".into(),
         _ => {}
     }
-    buttons.push(Btn { href: spil("open", &g.rel), label: "📂 Åbn mappe".into(), primary: false });
+    // spil://-hjælperen kender kun spilmappen
+    if g.kind != "software" {
+        buttons.push(Btn { href: spil("open", &g.rel), label: "📂 Åbn mappe".into(), primary: false });
+    }
 
     // Download gennem browseren (fx via Tailscale, når man ikke er hjemme)
     let mut downloads: Vec<Btn> = g.isos.iter().map(|f| Btn {
@@ -222,11 +240,12 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
         buttons,
         downloads,
         note,
-        unc_path: format!("{}\\{}", app.cfg.unc_root, g.rel.replace('/', "\\")),
+        unc_path: app.cfg.unc(&g.rel),
         files,
         updates_href: if g.updates.is_empty() { String::new() } else { spil("open", &format!("{}/updates", g.rel)) },
         updates: g.updates,
         current,
+        software: g.kind == "software",
     })
 }
 

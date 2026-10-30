@@ -37,7 +37,7 @@ pub async fn file(State(app): State<Shared>, UrlPath(id): UrlPath<i64>, Query(q)
         return (StatusCode::NOT_FOUND, "Ukendt fil").into_response();
     }
     let name = q.f.rsplit('/').next().unwrap_or(&q.f).to_string();
-    match ServeFile::new_with_mime(app.cfg.games.join(&q.f), &mime_iso()).try_call(req).await {
+    match ServeFile::new_with_mime(app.cfg.path(&q.f), &mime_iso()).try_call(req).await {
         Ok(res) => {
             let mut res = res.map(Body::new);
             res.headers_mut().insert(header::CONTENT_DISPOSITION, disposition(&name));
@@ -248,7 +248,7 @@ pub async fn folder(State(app): State<Shared>, UrlPath(id): UrlPath<i64>) -> Res
     let Some(g) = db::get(&app.db.lock().unwrap(), id) else {
         return (StatusCode::NOT_FOUND, "Ukendt spil").into_response();
     };
-    let dir = app.cfg.games.join(&g.rel);
+    let dir = app.cfg.path(&g.rel);
     if !dir.is_dir() {
         return (StatusCode::NOT_FOUND, "Mappen findes ikke").into_response();
     }

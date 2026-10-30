@@ -23,11 +23,33 @@ pub struct Config {
     pub qbit_url: String,
     pub qbit_category: String,
     pub import_minutes: f64,
+    /// Mappe med programmer (ikke spil); tom = slået fra
+    pub software: Option<PathBuf>,
+    pub software_unc: String,
 }
+
+/// Software gemmes i samme tabel som spil, med rel = "@software/<mappe>".
+pub const SOFTWARE: &str = "@software/";
 
 impl Config {
     pub fn covers(&self) -> PathBuf {
         self.config.join("covers")
+    }
+
+    /// Sti på disken for en rel-sti fra databasen (spil eller software).
+    pub fn path(&self, rel: &str) -> PathBuf {
+        match (rel.strip_prefix(SOFTWARE), &self.software) {
+            (Some(r), Some(s)) => s.join(r),
+            _ => self.games.join(rel),
+        }
+    }
+
+    /// Windows-sti til en rel-sti.
+    pub fn unc(&self, rel: &str) -> String {
+        match rel.strip_prefix(SOFTWARE) {
+            Some(r) => format!("{}\\{}", self.software_unc, r.replace('/', "\\")),
+            None => format!("{}\\{}", self.unc_root, rel.replace('/', "\\")),
+        }
     }
 }
 
@@ -70,6 +92,8 @@ async fn main() {
         qbit_url: env("QBIT_URL", ""),
         qbit_category: env("QBIT_CATEGORY", "games"),
         import_minutes: env("IMPORT_MINUTES", "5").parse().unwrap_or(5.0),
+        software: Some(env("SOFTWARE_DIR", "")).filter(|s| !s.is_empty()).map(PathBuf::from),
+        software_unc: env("SOFTWARE_UNC", r"\\192.168.68.58\data\software"),
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "klient") {
@@ -116,4 +140,22 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.expect("kan ikke binde port");
     eprintln!("Spilarr lytter på :{port}");
     axum::serve(listener, web::router(app)).await.expect("server fejlede");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stier() {
+        let c = Config {
+            games: "/data/games".into(), config: "/config".into(), unc_root: r"\t\data\games".into(), linux_root: String::new(),
+            scan_hours: 6.0, qbit_url: String::new(), qbit_category: String::new(), import_minutes: 5.0,
+            software: Some("/data/software".into()), software_unc: r"\t\data\software".into(),
+        };
+        assert_eq!(c.path("Spil/a.iso"), PathBuf::from("/data/games/Spil/a.iso"));
+        assert_eq!(c.path("@software/petka/x.iso"), PathBuf::from("/data/software/petka/x.iso"));
+        assert_eq!(c.unc("portable/Cyberpunk"), r"\t\data\games\portable\Cyberpunk");
+        assert_eq!(c.unc("@software/petka"), r"\t\data\software\petka");
+    }
 }

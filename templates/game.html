@@ -7,7 +7,7 @@
       {% if !poster.is_empty() %}<img src="{{ poster }}" alt=""{% if poster_wide %} class="wide"{% endif %}>{% else %}<div class="ph">{{ title }}</div>{% endif %}
     </div>
     <div class="info">
-      <h1>{{ title }} <span class="muted">({{ year }})</span></h1>
+      <h1>{{ title }} {% if !software %}<span class="muted">({{ year }})</span>{% endif %}</h1>
       <p class="sub">
         <span class="badge {{ kind }} inline">{{ label }}</span>
         {% if !grp.is_empty() %}<span>{{ grp }}</span>{% endif %}
@@ -18,7 +18,7 @@
         <p class="genres">{% for x in genres %}<span class="chip">{{ x }}</span>{% endfor %}</p>
         <p class="short">{{ short }}</p>
         <p class="muted small">{{ credits }} · <a href="{{ url }}" target="_blank" rel="noopener">Steam-side</a></p>
-      {% else %}
+      {% else if !software %}
         <p class="muted">Ingen metadata fundet. Ret match nedenfor.</p>
       {% endif %}
       <div class="actions">
@@ -49,12 +49,14 @@
       <ul class="files">{% for u in updates %}<li>{{ u }}</li>{% endfor %}</ul>
       <a class="btn small" href="{{ updates_href }}">📂 Åbn updates</a>
     {% endif %}
+    {% if !software %}
     <h2>Ret match</h2>
     <form method="post" action="/spil/{{ id }}/match" class="match">
       <input name="q" placeholder="Steam-appid, søgetekst eller 'ingen'">
       <button class="btn">Gem</button>
     </form>
     <p class="muted small">Nu: {{ current }}</p>
+    {% endif %}
   </aside>
 </div>
 {% endblock %}

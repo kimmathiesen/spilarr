@@ -434,6 +434,14 @@ struct ApiGame {
     isos: Vec<String>,
 }
 
+/// Sti på USB-disken: spil i roden (uden portable/), programmer under Software/.
+fn disk_path(rel: &str) -> String {
+    match rel.strip_prefix(crate::SOFTWARE) {
+        Some(r) => format!("Software/{r}"),
+        None => rel.strip_prefix("portable/").unwrap_or(rel).to_string(),
+    }
+}
+
 fn base(rel: &str) -> &str {
     rel.rsplit('/').next().unwrap_or(rel)
 }
@@ -448,12 +456,12 @@ async fn enqueue(State(k): State<Shared>, Json(h): Json<HentF>) -> Response {
     let Some(g) = list.into_iter().find(|g| g.id == h.id) else { return fail("Ukendt spil") };
     let (url, dest, file, zip) = match &h.f {
         Some(f) if g.isos.contains(f) => {
-            (format!("/spil/{}/hent?f={}", g.id, urlencoding::encode(f)), f.clone(), base(f).to_string(), false)
+            (format!("/spil/{}/hent?f={}", g.id, urlencoding::encode(f)), disk_path(f), base(f).to_string(), false)
         }
         Some(_) => return fail("Ukendt fil"),
         None => {
             let name = format!("{}.zip", base(&g.rel));
-            (format!("/spil/{}/zip", g.id), name.clone(), name, true)
+            (format!("/spil/{}/zip", g.id), disk_path(&format!("{}.zip", g.rel)), name, true)
         }
     };
     if let Some(j) = k.jobs.lock().unwrap().iter().find(|j| j.url == url && j.state != Tilstand::Faerdig) {
@@ -557,6 +565,14 @@ mod tests {
         let d = disk(Path::new("/findes/ikke"));
         assert!(!d.ok);
         assert!(statvfs(Path::new("/")).is_some_and(|(_, t)| t > 0));
+    }
+
+    #[test]
+    fn disk_paths() {
+        assert_eq!(disk_path("Spil (2020) - X/a.iso"), "Spil (2020) - X/a.iso");
+        assert_eq!(disk_path("portable/Cyberpunk 2077 (2020).zip"), "Cyberpunk 2077 (2020).zip");
+        assert_eq!(disk_path("@software/petka.zip"), "Software/petka.zip");
+        assert_eq!(disk_path("@software/X/a.iso"), "Software/X/a.iso");
     }
 
     #[test]
