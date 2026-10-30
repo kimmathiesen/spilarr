@@ -1,5 +1,6 @@
 //! Spilarr – Radarr-agtigt bibliotek over en spil-share med plakater, infoside og spil://-knapper.
 mod db;
+mod download;
 mod import;
 mod scan;
 mod steam;

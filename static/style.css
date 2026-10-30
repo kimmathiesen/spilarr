@@ -55,6 +55,7 @@ main { padding: 0 20px 40px; }
 .genres .chip { cursor: default; }
 .short { font-size: 16px; max-width: 760px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 18px; }
+.actions.dl { margin-top: 10px; }
 .note { color: #f0a58f; }
 
 .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; max-width: 1300px; margin-top: 10px; }

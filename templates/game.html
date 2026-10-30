@@ -25,6 +25,10 @@
         {% for b in buttons %}<a class="btn{% if b.primary %} primary{% endif %}" href="{{ b.href }}">{{ b.label }}</a>{% endfor %}
         {% if !note.is_empty() %}<span class="note">{{ note }}</span>{% endif %}
       </div>
+      <div class="actions dl">
+        {% for b in downloads %}<a class="btn small" href="{{ b.href }}" download>{{ b.label }}</a>{% endfor %}
+        <span class="muted small">Download gennem browseren – ISO'en kan genoptages, zip'en ikke.</span>
+      </div>
     </div>
   </div>
 </section>

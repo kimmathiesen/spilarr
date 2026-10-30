@@ -104,6 +104,14 @@ Scriptet installerer [linux/spil-handler.sh](linux/spil-handler.sh) i `~/.local/
   - Spil-ISO'er er UDF, og det kan `fuseiso` og `archivemount` ikke læse.
 - **`.exe`** køres med Proton via `umu-run`, ellers med `wine`. Hvert spil får sit eget prefix i `~/Games/spilarr/<spilmappe>`.
 
+## Download gennem browseren
+
+Spillets side har også knapper til at hente spillet direkte, fx via Tailscale, når man ikke er hjemme:
+- **Hent ISO** (`/spil/{id}/hent?f=<iso>`) sender ISO'en som en almindelig fil med `Range`-understøttelse, så en afbrudt download kan genoptages. Kun ISO'er, scanneren har fundet, kan hentes.
+- **Hent mappe som zip** (`/spil/{id}/zip`) streamer hele mappen, inkl. `updates/`, som zip64 uden komprimering. Der laves ingen mellemfil på serveren, og størrelsen kendes på forhånd, så browseren viser fremskridt. Zip'en kan ikke genoptages.
+
+Spilarr har intet login. Download-ruterne skal derfor ikke gøres offentlige uden en adgangskontrol foran, fx Cloudflare Access.
+
 ## Udvikling
 
 ```bash

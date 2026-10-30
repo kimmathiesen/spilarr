@@ -8,7 +8,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::db::{self, Game};
-use crate::{import, scan, Shared};
+use crate::{download, import, scan, Shared};
 
 const KINDS: [(&str, &str); 5] =
     [("iso", "ISO"), ("rar", "RAR"), ("setup", "Installer"), ("portable", "Portable"), ("mappe", "Mappe")];
@@ -24,6 +24,8 @@ pub fn router(app: Shared) -> Router {
         .route("/", get(index))
         .route("/spil/{id}", get(game))
         .route("/spil/{id}/match", post(rematch))
+        .route("/spil/{id}/hent", get(download::file))
+        .route("/spil/{id}/zip", get(download::folder))
         .route("/scan", post(scan_now))
         .route("/status", get(status))
         .route("/import", get(imports).post(import_now))
@@ -142,6 +144,7 @@ struct GameT {
     url: String,
     screens: Vec<String>,
     buttons: Vec<Btn>,
+    downloads: Vec<Btn>,
     note: String,
     unc_path: String,
     files: Vec<String>,
@@ -170,10 +173,18 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
                 buttons.push(Btn { href: spil("run", f), label, primary: i == 0 });
             }
         }
-        "rar" => note = "Kun rar-filer – kan ikke mountes endnu (udpakning af gamle mapper kommer i fase 3).".into(),
+        "rar" => note = "Kun rar-filer – kan ikke mountes. Pak dem ud med spilarr unpack.".into(),
         _ => {}
     }
     buttons.push(Btn { href: spil("open", &g.rel), label: "📂 Åbn mappe".into(), primary: false });
+
+    // Download gennem browseren (fx via Tailscale, når man ikke er hjemme)
+    let mut downloads: Vec<Btn> = g.isos.iter().map(|f| Btn {
+        href: format!("/spil/{}/hent?f={}", g.id, urlencoding::encode(f)),
+        label: if g.isos.len() > 1 { format!("⤓ {}", fname(f)) } else { "⤓ Hent ISO".into() },
+        primary: false,
+    }).collect();
+    downloads.push(Btn { href: format!("/spil/{}/zip", g.id), label: "⤓ Hent mappe som zip".into(), primary: false });
 
     let files = g.isos.iter().map(|f| format!("💿 {}", fname(f)))
         .chain(g.setups.iter().map(|f| format!("⚙️ {}", fname(f))))
@@ -208,6 +219,7 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
         url: m.url,
         screens: m.screens,
         buttons,
+        downloads,
         note,
         unc_path: format!("{}\\{}", app.cfg.unc_root, g.rel.replace('/', "\\")),
         files,
