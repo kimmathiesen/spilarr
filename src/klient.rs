@@ -205,6 +205,7 @@ pub async fn run(cfg: Cfg) {
         .route("/api/job/{n}/igen", post(retry))
         .route("/api/udskub", post(eject))
         .route("/api/sluk", post(poweroff))
+        .route("/api/wifi", get(wifi_list).post(wifi_connect))
         .with_state(k);
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("kan ikke binde port");
     eprintln!("SpilarrOS-klient lytter på {addr}");
@@ -443,6 +444,7 @@ struct StatusOut {
     server_msg: String,
     server: String,
     disk: Disk,
+    net: Net,
     jobs: Vec<JobOut>,
 }
 
@@ -456,7 +458,7 @@ async fn status(State(k): State<Shared>) -> Json<StatusOut> {
         let eta = (active && speed > 0.0).then(|| (j.size - j.done.min(j.size)) as f64 / speed);
         JobOut { job: j.clone(), speed, eta }
     }).collect();
-    Json(StatusOut { server_ok: l.server_ok, server_msg: l.server_msg.clone(), server: k.cfg.server.clone(), disk, jobs })
+    Json(StatusOut { server_ok: l.server_ok, server_msg: l.server_msg.clone(), server: k.cfg.server.clone(), disk, net: net(), jobs })
 }
 
 #[derive(Deserialize)]
@@ -596,9 +598,140 @@ async fn poweroff(State(k): State<Shared>) -> Response {
     }
 }
 
+// ---------- Wifi ----------
+
+#[derive(Serialize, Default)]
+struct Net {
+    kabel: bool,
+    /// Boksen har et wifi-kort (driveren er indlæst)
+    wifi_kort: bool,
+    wifi: bool,
+}
+
+/// Læses fra /sys, da den spørges hvert andet sekund.
+fn net() -> Net {
+    let mut n = Net::default();
+    let Ok(dir) = fs::read_dir("/sys/class/net") else { return n };
+    for e in dir.flatten() {
+        let (p, name) = (e.path(), e.file_name().to_string_lossy().to_string());
+        let read = |f: &str| fs::read_to_string(p.join(f)).unwrap_or_default().trim().to_string();
+        if p.join("wireless").exists() {
+            n.wifi_kort = true;
+            n.wifi |= read("operstate") == "up";
+        } else if name.starts_with("eth") || name.starts_with("en") {
+            n.kabel |= read("carrier") == "1";
+        }
+    }
+    n
+}
+
+const WIFI: &str = "/usr/local/sbin/spilarros-wifi";
+
+/// Koden sendes på stdin, så den ikke står på kommandolinjen til sudo og i dens log.
+fn wifi_cmd(args: &[&str], stdin: &str) -> Result<String, String> {
+    use std::process::{Command, Stdio};
+    let mut c = Command::new("sudo").arg("-n").arg(WIFI).args(args)
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().map_err(|e| e.to_string())?;
+    if let Some(mut i) = c.stdin.take() {
+        let _ = writeln!(i, "{stdin}");
+    }
+    let o = c.wait_with_output().map_err(|e| e.to_string())?;
+    if o.status.success() {
+        Ok(String::from_utf8_lossy(&o.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&o.stderr).trim().to_string())
+    }
+}
+
+/// `nmcli -t` adskiller med `:` og skriver `\:` og `\\` inde i et felt.
+fn nm_felter(line: &str) -> Vec<String> {
+    let (mut out, mut cur, mut it) = (Vec::new(), String::new(), line.chars());
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => cur.extend(it.next()),
+            ':' => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(c),
+        }
+    }
+    out.push(cur);
+    out
+}
+
+#[derive(Serialize, PartialEq, Debug)]
+struct WifiNet {
+    ssid: String,
+    signal: u32,
+    /// Kræver kode
+    kode: bool,
+    gemt: bool,
+    aktiv: bool,
+}
+
+/// Samler sendere med samme navn (mesh) til én række med det bedste signal, stærkeste først.
+fn wifi_parse(liste: &str, gemte: &str) -> Vec<WifiNet> {
+    let gemte: Vec<String> = gemte.lines().map(nm_felter)
+        .filter(|f| f.get(1).is_some_and(|t| t == "802-11-wireless"))
+        .map(|mut f| f.swap_remove(0)).collect();
+    let mut out: Vec<WifiNet> = Vec::new();
+    for f in liste.lines().map(nm_felter).filter(|f| f.len() == 4 && !f[3].is_empty()) {
+        let (aktiv, signal, kode, ssid) = (f[0] == "*", f[1].parse().unwrap_or(0), !f[2].is_empty(), &f[3]);
+        match out.iter_mut().find(|n| n.ssid == *ssid) {
+            Some(n) => {
+                n.signal = n.signal.max(signal);
+                n.aktiv |= aktiv;
+            }
+            None => out.push(WifiNet { ssid: ssid.clone(), signal, kode, gemt: gemte.contains(ssid), aktiv }),
+        }
+    }
+    out.sort_by_key(|n| std::cmp::Reverse(n.signal));
+    out
+}
+
+async fn wifi_list() -> Response {
+    let r = tokio::task::spawn_blocking(|| Ok::<_, String>((wifi_cmd(&["liste"], "")?, wifi_cmd(&["gemte"], "")?))).await;
+    match r {
+        Ok(Ok((l, g))) => Json(serde_json::json!({ "net": net(), "list": wifi_parse(&l, &g) })).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "Kan ikke søge efter wifi").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct WifiF {
+    ssid: String,
+    #[serde(default)]
+    pw: String,
+}
+
+async fn wifi_connect(Json(w): Json<WifiF>) -> Response {
+    if net().kabel {
+        return (StatusCode::CONFLICT, "Kablet er forbundet – wifi bruges kun uden kabel").into_response();
+    }
+    if w.ssid.is_empty() || w.ssid.len() > 32 || w.pw.contains('\n') {
+        return (StatusCode::BAD_REQUEST, "Ugyldigt netværk eller kode").into_response();
+    }
+    let ssid = w.ssid.clone();
+    let r = tokio::task::spawn_blocking(move || wifi_cmd(&["forbind", &w.ssid], &w.pw)).await;
+    match r {
+        Ok(Ok(_)) => (StatusCode::OK, format!("Forbundet til {ssid}")).into_response(),
+        _ => (StatusCode::BAD_GATEWAY, "Kunne ikke forbinde – tjek koden").into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wifi_liste() {
+        let l = " :40:WPA2:Nabo\\:net\n*:78:WPA2 WPA3:Hjem\n :90:WPA2 WPA3:Hjem\n :60::Cafe\n :50:WPA2:\n";
+        let g = "Hjem:802-11-wireless\nWired connection 1:802-3-ethernet\nNabo\\:net:802-3-ethernet\n";
+        let r = wifi_parse(l, g);
+        assert_eq!(r.iter().map(|n| n.ssid.as_str()).collect::<Vec<_>>(), ["Hjem", "Cafe", "Nabo:net"]);
+        assert!(r[0].aktiv && r[0].gemt && r[0].kode && r[0].signal == 90);
+        assert!(!r[1].kode && !r[1].gemt);
+        assert!(!r[2].gemt);
+    }
 
     #[test]
     fn disk_uden_montering() {

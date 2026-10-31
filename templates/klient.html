@@ -24,6 +24,14 @@
     .specs label { display: flex; flex-direction: column; gap: 4px; }
     .specs select { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 16px; }
     .specs .kanrow { margin: 0; }
+    .wifi { width: min(760px, 94vw); }
+    .wifi .net { display: flex; justify-content: space-between; gap: 12px; text-align: left; width: 100%; }
+    .wifi .nets { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 55vh; }
+    .wifi input { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 18px; flex: 1; min-width: 0; }
+    .kb { display: flex; flex-direction: column; gap: 5px; }
+    .kb div { display: flex; gap: 5px; justify-content: center; }
+    .kb button { flex: 1; min-width: 0; padding: 11px 0; font-size: 17px; background: #2a2e35; color: inherit; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+    .kb button.on { background: var(--accent); color: #111; }
     /* spillets boks */
     #ov { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 20; }
     #ov.on { display: flex; }
@@ -63,6 +71,7 @@
       <button class="chip" data-k="software">Software</button>
     </div>
     <div class="right">
+      <button class="btn" id="wifi" style="display:none">📶 Wifi</button>
       <button class="btn" id="specs">💻 Min PC</button>
       <button class="btn" id="eject">⏏ Skub disk ud</button>
       <button class="btn" id="off">⏻ Sluk</button>
@@ -75,6 +84,7 @@
   <div id="jobs"></div>
   <footer class="bar">
     <span><span class="dot" id="sdot"></span><span id="stxt">Forbinder…</span></span>
+    <span><span class="dot" id="ndot"></span><span id="ntxt">Net…</span></span>
     <span><span class="dot" id="ddot"></span><span id="dtxt">Disk…</span></span>
     <button class="btn small q" id="qbtn">Downloads</button>
   </footer>
@@ -158,6 +168,81 @@ async function openSpecs() {
 
 function closeBox() { $('#ov').classList.remove('on'); $('#box').className = 'box'; }
 
+// ---------- Wifi ----------
+function wifiBox(html) {
+  $('#box').className = 'box specs wifi';
+  $('#box').innerHTML = `<div style="display:flex"><h1>Wifi</h1><button class="btn x" id="close">✕</button></div>` + html;
+  $('#ov').classList.add('on');
+  $('#close').onclick = closeBox;
+}
+
+function askWifi() {
+  wifiBox(`<p>Der er ikke noget kabel i. Vil du forbinde til wifi?</p>
+    <div style="display:flex;gap:10px"><button class="btn primary" id="ja">Ja</button><button class="btn" id="nej">Nej</button></div>`);
+  $('#ja').onclick = openWifi;
+  $('#nej').onclick = closeBox;
+}
+
+async function openWifi() {
+  wifiBox('<p class="muted">Søger efter netværk…</p>');
+  let s;
+  try { const r = await fetch('/api/wifi'); if (!r.ok) throw new Error(await r.text()); s = await r.json(); }
+  catch (e) { if ($('#ov').classList.contains('on')) wifiBox(`<p>${esc(e.message)}</p>`); return; }
+  if (!$('#box').classList.contains('wifi')) return; // lukket imens
+  wifiBox((s.net.kabel ? '<p class="muted">Kablet er forbundet, så wifi er koblet fra. Tag kablet ud for at bruge wifi.</p>' : '')
+    + (s.list.length ? `<div class="nets">${s.list.map((n, i) => `<button class="btn net" data-i="${i}"${s.net.kabel ? ' disabled' : ''}><span>${n.kode ? '🔒 ' : ''}${esc(n.ssid)}${n.aktiv ? ' ✔' : ''}</span><span class="muted">${n.signal} %</span></button>`).join('')}</div>` : '<p class="muted">Ingen netværk fundet.</p>')
+    + '<button class="btn" id="igen">Søg igen</button>');
+  $('#igen').onclick = openWifi;
+  document.querySelectorAll('.net').forEach(b => b.onclick = () => {
+    const n = s.list[b.dataset.i];
+    if (n.gemt || !n.kode) connectWifi(n, ''); else askCode(n);
+  });
+}
+
+async function connectWifi(n, pw) {
+  wifiBox(`<p class="muted">Forbinder til ${esc(n.ssid)}…</p>`);
+  try { toast(await post('/api/wifi', { ssid: n.ssid, pw })); closeBox(); poll(); }
+  catch (e) { toast(e.message); if (n.kode) askCode(n); else openWifi(); }
+}
+
+// Skærmtastatur, da boksen kan bruges med kun en mus
+const KB = [['1234567890', 'qwertyuiopå', 'asdfghjklæø', 'zxcvbnm'], ['!@#$%^&*()', '-_=+[]{}\\|', ';:\'",.<>/?', '`~€£§']];
+function askCode(n) {
+  let sym = 0, shift = false, pw = '';
+  wifiBox(`<p>Kode til <b>${esc(n.ssid)}</b></p>
+    <div style="display:flex;gap:8px"><input id="pw" type="password" autocomplete="off"><button class="btn" id="vis">👁</button></div>
+    <div class="kb" id="kb"></div>
+    <div style="display:flex;gap:10px"><button class="btn primary" id="ok">Forbind</button><button class="btn" id="tilbage">Tilbage</button></div>`);
+  const inp = $('#pw');
+  inp.oninput = () => pw = inp.value;
+  const keys = () => {
+    const c = k => shift ? k.toUpperCase() : k;
+    $('#kb').innerHTML = KB[sym].map(r => `<div>${[...r].map(k => `<button data-k="${esc(c(k))}">${esc(c(k))}</button>`).join('')}</div>`).join('')
+      + `<div><button data-a="shift" class="${shift ? 'on' : ''}">⇧</button><button data-a="sym" class="${sym ? 'on' : ''}">!#1</button><button data-k=" " style="flex:4">Mellemrum</button><button data-a="slet">⌫</button></div>`;
+  };
+  keys();
+  $('#kb').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.k) { pw += b.dataset.k; inp.value = pw; if (shift) { shift = false; keys(); } }
+    else if (b.dataset.a === 'slet') { pw = pw.slice(0, -1); inp.value = pw; }
+    else if (b.dataset.a === 'shift') { shift = !shift; keys(); }
+    else if (b.dataset.a === 'sym') { sym = 1 - sym; keys(); }
+  };
+  $('#vis').onclick = () => inp.type = inp.type === 'password' ? 'text' : 'password';
+  $('#tilbage').onclick = openWifi;
+  $('#ok').onclick = () => { if (pw) connectWifi(n, pw); else toast('Skriv koden'); };
+}
+
+// Spørg én gang, når der ikke er net. Wifi får lidt tid til selv at koble på et gemt net, når kablet tages ud.
+let udenNet = 0, spurgt = false;
+function netStatus(n) {
+  $('#wifi').style.display = n.wifi_kort ? '' : 'none';
+  $('#ndot').className = 'dot' + (n.kabel || n.wifi ? ' ok' : '');
+  $('#ntxt').textContent = n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net';
+  if (n.kabel || n.wifi) { udenNet = 0; spurgt = false; return; }
+  if (n.wifi_kort && !spurgt && ++udenNet >= 8 && !$('#ov').classList.contains('on')) { spurgt = true; askWifi(); }
+}
+
 function jobHtml(j) {
   const pct = j.size ? Math.min(100, j.done / j.size * 100) : 0;
   let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl' }[j.state];
@@ -175,6 +260,7 @@ async function poll() {
     const s = await (await fetch('/api/status')).json(); last = s;
     $('#sdot').className = 'dot' + (s.server_ok ? ' ok' : '');
     $('#stxt').textContent = s.server_ok ? 'Forbundet hjem' : (s.server_msg || 'Forbinder…');
+    netStatus(s.net);
     const d = s.disk;
     $('#ddot').className = 'dot' + (d.ok && d.fs !== 'vfat' ? ' ok' : '');
     $('#dtxt').textContent = d.ok ? `Disk (${d.fs}): ${gb(d.free)} fri af ${gb(d.total)}${d.msg ? ' – ' + d.msg : ''}` : d.msg;
@@ -193,6 +279,7 @@ $('#qbtn').onclick = () => $('#jobs').classList.toggle('on');
 $('#grid').onclick = e => { const c = e.target.closest('.card'); if (c) open(c.dataset.id); };
 $('#ov').onclick = e => { if (e.target.id === 'ov') closeBox(); };
 $('#specs').onclick = openSpecs;
+$('#wifi').onclick = openWifi;
 $('#q').oninput = render;
 document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
   document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); kind = b.dataset.k; render(); });
