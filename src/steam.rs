@@ -32,6 +32,8 @@ pub struct Meta {
     pub background: Option<String>,
     pub url: String,
     pub poster_wide: bool,
+    pub req_min: Vec<String>,
+    pub req_rec: Vec<String>,
 }
 
 pub fn http() -> &'static reqwest::blocking::Client {
@@ -143,6 +145,18 @@ fn strs(v: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Systemkrav fra Steams html som linjer, uden overskriften. Steam sender [] i stedet for et objekt, når der ingen er.
+fn reqs(v: &Value) -> Vec<String> {
+    text(v.as_str().unwrap_or_default())
+        .lines()
+        .map(|l| {
+            let l = l.trim().trim_start_matches('•').trim();
+            ["Minimum:", "Anbefalet:", "Recommended:"].iter().find_map(|h| l.strip_prefix(h)).unwrap_or(l).trim().to_string()
+        })
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
 pub fn details(appid: i64) -> Option<Meta> {
     let v: Value = http()
         .get("https://store.steampowered.com/api/appdetails")
@@ -173,6 +187,8 @@ pub fn details(appid: i64) -> Option<Meta> {
         background: d["background_raw"].as_str().or(d["background"].as_str()).map(String::from),
         url: format!("https://store.steampowered.com/app/{appid}"),
         poster_wide: false,
+        req_min: reqs(&d["pc_requirements"]["minimum"]),
+        req_rec: reqs(&d["pc_requirements"]["recommended"]),
     })
 }
 
@@ -201,6 +217,15 @@ mod tests {
     fn ratio_som_difflib() {
         assert_eq!(ratio("abcd", "abcd"), 1.0);
         assert!((ratio("assassins creed", "assassin s creed") - 0.9677).abs() < 0.001);
+    }
+
+    #[test]
+    fn systemkrav_som_linjer() {
+        let h = "<strong>Minimum:</strong><br><ul class=\"bb_ul\"><li>Kræver 64-bit<br></li><li><strong>Hukommelse:</strong> 16 GB RAM<br></li></ul>";
+        assert_eq!(reqs(&Value::from(h)), ["Kræver 64-bit", "Hukommelse: 16 GB RAM"]);
+        assert_eq!(reqs(&Value::from("<strong>Minimum:</strong> 2 GHz")), ["2 GHz"]);
+        assert!(reqs(&Value::from("<strong>Anbefalet:</strong><br><ul class=\"bb_ul\"></ul>")).is_empty());
+        assert!(reqs(&serde_json::json!([])["minimum"]).is_empty());
     }
 
     #[test]

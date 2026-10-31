@@ -135,6 +135,13 @@ pub fn todo(c: &Connection, before: f64) -> rusqlite::Result<Vec<i64>> {
         .collect()
 }
 
+/// Spil, hvis metadata er hentet, før systemkrav kom med.
+pub fn todo_reqs(c: &Connection) -> rusqlite::Result<Vec<i64>> {
+    c.prepare("select id from games where appid is not null and meta is not null and meta not like '%\"req_min\":%'")?
+        .query_map([], |r| r.get(0))?
+        .collect()
+}
+
 pub fn set_meta(c: &Connection, id: i64, appid: Option<i64>, meta: Option<&Meta>, locked: bool, now: f64) -> rusqlite::Result<()> {
     let m = meta.and_then(|m| serde_json::to_string(m).ok());
     c.execute(

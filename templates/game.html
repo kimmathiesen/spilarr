@@ -35,6 +35,13 @@
 <div class="cols">
   <div>
     {% if !about.is_empty() %}<h2>Om spillet</h2><div class="about">{{ about }}</div>{% endif %}
+    {% if !req_min.is_empty() || !req_rec.is_empty() %}
+      <h2>Systemkrav</h2>
+      <div class="reqs">
+        {% if !req_min.is_empty() %}<div><h3>Minimum</h3><ul>{% for (k, v) in req_min %}<li>{% if !k.is_empty() %}<b>{{ k }}:</b> {% endif %}{{ v }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if !req_rec.is_empty() %}<div><h3>Anbefalet</h3><ul>{% for (k, v) in req_rec %}<li>{% if !k.is_empty() %}<b>{{ k }}:</b> {% endif %}{{ v }}</li>{% endfor %}</ul></div>{% endif %}
+      </div>
+    {% endif %}
     {% if !screens.is_empty() %}
       <h2>Billeder</h2>
       <div class="shots">{% for s in screens %}<a href="{{ s }}" target="_blank" rel="noopener"><img loading="lazy" src="{{ s }}" alt=""></a>{% endfor %}</div>

@@ -96,6 +96,9 @@ function render() {
     <div class="cap"><b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></div></div>`).join('');
 }
 
+// Listen kan være gemt, før serveren sendte systemkrav
+const reqs = (t, l) => l && l.length ? `<p class="muted small"><b>${t}:</b> ${l.map(esc).join(' · ')}</p>` : '';
+
 function open(id) {
   const g = games.find(x => x.id == id); if (!g) return;
   const name = f => f.split('/').pop();
@@ -106,6 +109,7 @@ function open(id) {
     <p class="sub"><span class="badge ${esc(g.kind)} inline">${esc(g.label)}</span>${g.grp ? `<span>${esc(g.grp)}</span>` : ''}<span>${gb(g.size)}</span></p>
     <p class="genres">${g.genres.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</p>
     <p class="short">${esc(g.short)}</p>
+    ${reqs('Minimum', g.req_min)}${reqs('Anbefalet', g.req_rec)}
     <div class="dlbtns">${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
   $('#ov').classList.add('on');
   $('#close').onclick = () => $('#ov').classList.remove('on');

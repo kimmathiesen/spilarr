@@ -158,6 +158,12 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
         fetch_meta(app, *id, None, false);
         std::thread::sleep(Duration::from_millis(1500));
     }
+    let todo = db::todo_reqs(&app.db.lock().unwrap()).unwrap_or_default();
+    for (i, id) in todo.iter().enumerate() {
+        set_msg(app, format!("Henter systemkrav ({}/{})", i + 1, todo.len()));
+        fetch_reqs(app, *id);
+        std::thread::sleep(Duration::from_millis(1500));
+    }
     let mut s = app.status.lock().unwrap();
     s.scanning = false;
     s.last = Some(now());
@@ -218,6 +224,18 @@ fn save_images(app: &App, m: &mut Meta) {
     let hero = steam::image(m.appid, &["library_hero.jpg"]).or_else(|| m.background.as_deref().and_then(steam::get_image));
     if let Some(b) = hero {
         let _ = std::fs::write(covers.join(format!("{}_hero.jpg", m.appid)), b);
+    }
+}
+
+/// Tilføjer systemkrav til eksisterende metadata uden at røre match og billeder. Fejler Steam, prøves igen ved næste scanning.
+fn fetch_reqs(app: &App, id: i64) {
+    let Some(g) = db::get(&app.db.lock().unwrap(), id) else { return };
+    let (Some(appid), Some(mut m)) = (g.appid, g.meta) else { return };
+    let Some(n) = steam::details(appid) else { return };
+    m.req_min = n.req_min;
+    m.req_rec = n.req_rec;
+    if let Err(e) = db::set_meta(&app.db.lock().unwrap(), id, Some(appid), Some(&m), g.locked, now()) {
+        eprintln!("kan ikke gemme systemkrav for {id}: {e}");
     }
 }
 

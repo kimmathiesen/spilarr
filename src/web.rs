@@ -157,6 +157,8 @@ struct GameT {
     credits: String,
     url: String,
     screens: Vec<String>,
+    req_min: Vec<(String, String)>,
+    req_rec: Vec<(String, String)>,
     buttons: Vec<Btn>,
     downloads: Vec<Btn>,
     note: String,
@@ -166,6 +168,14 @@ struct GameT {
     updates_href: String,
     current: String,
     software: bool,
+}
+
+/// "Hukommelse: 16 GB RAM" → (etiket, værdi), så etiketten kan fremhæves.
+fn req_rows(lines: &[String]) -> Vec<(String, String)> {
+    lines.iter().map(|l| match l.split_once(": ") {
+        Some((k, v)) if k.chars().count() <= 30 => (k.to_string(), v.to_string()),
+        _ => (String::new(), l.clone()),
+    }).collect()
 }
 
 async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
@@ -237,6 +247,8 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
         credits,
         url: m.url,
         screens: m.screens,
+        req_min: req_rows(&m.req_min),
+        req_rec: req_rows(&m.req_rec),
         buttons,
         downloads,
         note,
@@ -348,6 +360,8 @@ pub struct ApiGame {
     pub poster_wide: bool,
     pub genres: Vec<String>,
     pub short: String,
+    pub req_min: Vec<String>,
+    pub req_rec: Vec<String>,
 }
 
 async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
@@ -368,6 +382,8 @@ async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
             poster_wide: m.poster_wide,
             genres: m.genres,
             short: m.short,
+            req_min: m.req_min,
+            req_rec: m.req_rec,
         }
     }).collect())
 }
