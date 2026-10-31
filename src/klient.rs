@@ -71,6 +71,9 @@ struct Job {
     /// Unix-tid for næste forsøg efter en fejl
     #[serde(default)]
     retry: f64,
+    /// Unix-tid, hvor downloaden må starte (0 = med det samme)
+    #[serde(default)]
+    start: f64,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -203,6 +206,7 @@ pub async fn run(cfg: Cfg) {
         .route("/api/hent", post(enqueue))
         .route("/api/job/{n}/fjern", post(remove))
         .route("/api/job/{n}/igen", post(retry))
+        .route("/api/job/{n}/nu", post(start_now))
         .route("/api/udskub", post(eject))
         .route("/api/sluk", post(poweroff))
         .route("/api/wifi", get(wifi_list).post(wifi_connect))
@@ -224,7 +228,7 @@ fn worker(k: &K) {
         let next = {
             let jobs = k.jobs.lock().unwrap();
             jobs.iter()
-                .find(|j| j.state == Tilstand::Venter || (j.state == Tilstand::Fejl && j.retry > 0.0 && j.retry <= now()))
+                .find(|j| (j.state == Tilstand::Venter && j.start <= now()) || (j.state == Tilstand::Fejl && j.retry > 0.0 && j.retry <= now()))
                 .cloned()
         };
         let Some(job) = next else {
@@ -466,6 +470,8 @@ struct HentF {
     id: i64,
     #[serde(default)]
     f: Option<String>,
+    #[serde(default)]
+    start: f64,
 }
 
 #[derive(Deserialize)]
@@ -522,7 +528,7 @@ async fn enqueue(State(k): State<Shared>, Json(h): Json<HentF>) -> Response {
     }
     let mut jobs = k.jobs.lock().unwrap();
     let n = jobs.iter().map(|j| j.n).max().unwrap_or(0) + 1;
-    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0 });
+    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0, start: h.start });
     k.save(&jobs);
     Json(serde_json::json!({ "n": n })).into_response()
 }
@@ -560,6 +566,11 @@ async fn retry(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusCode 
             j.msg.clear();
         }
     });
+    StatusCode::NO_CONTENT
+}
+
+async fn start_now(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusCode {
+    k.update(n, |j| j.start = 0.0);
     StatusCode::NO_CONTENT
 }
 
@@ -751,7 +762,7 @@ mod tests {
     #[test]
     fn job_json() {
         let j = Job { n: 1, id: 2, title: "T".into(), file: "a.iso".into(), url: "/spil/2/hent?f=a".into(), dest: "X/a.iso".into(),
-            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0 };
+            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0, start: 0.0 };
         let s = serde_json::to_string(&j).unwrap();
         assert!(s.contains("\"state\":\"faerdig\""));
         let back: Job = serde_json::from_str(&s).unwrap();

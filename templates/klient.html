@@ -41,6 +41,7 @@
     .box h1 { margin: 0 0 6px; font-size: 26px; }
     .box .x { margin-left: auto; }
     .dlbtns { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; margin-top: 18px; }
+    .dlbtns select { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 15px; margin-left: 6px; }
     /* bundlinje og kø */
     .bar { background: #15171b; border-top: 1px solid var(--line); padding: 8px 20px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; font-size: 14px; }
     .bar .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #c0563f; }
@@ -124,6 +125,22 @@ function render() {
 // Listen kan være gemt, før serveren sendte systemkrav
 const reqs = (t, l) => l && l.length ? `<p class="muted small"><b>${t}:</b> ${l.map(esc).join(' · ')}</p>` : '';
 
+// Starttid: næste gang klokken bliver det valgte, hver halve time
+let valgtStart = '';
+const pad = n => String(n).padStart(2, '0');
+const startOpts = () => '<option value="">Nu</option>' + Array.from({ length: 48 }, (_, i) => {
+  const t = `${pad(i >> 1)}:${i & 1 ? '30' : '00'}`;
+  return `<option value="${t}">kl. ${t}</option>`;
+}).join('');
+function startTime(v) {
+  if (!v) return 0;
+  const [h, m] = v.split(':').map(Number), d = new Date();
+  d.setHours(h, m, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d.getTime() / 1000;
+}
+const startTxt = s => new Date(s * 1000).toLocaleString('da-DK', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
 function open(id) {
   const g = games.find(x => x.id == id); if (!g) return;
   const name = f => f.split('/').pop();
@@ -136,12 +153,16 @@ function open(id) {
     <p class="short">${esc(g.short)}</p>
     ${g.kan ? `<div class="kanrow">${kanIcon(g.kan, g.kan_why)}<span><b>${KAN[g.kan][1]}</b> <span class="muted small">${esc(g.kan_why)}</span></span></div>` : ''}
     ${reqs('Minimum', g.req_min)}${reqs('Anbefalet', g.req_rec)}
-    <div class="dlbtns">${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
+    <div class="dlbtns"><label class="small">Start <select id="start">${startOpts()}</select></label>${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
   $('#ov').classList.add('on');
   $('#close').onclick = () => $('#ov').classList.remove('on');
+  // Husk valget, så flere spil nemt kan sættes i kø til samme tidspunkt
+  $('#start').value = valgtStart;
+  $('#start').onchange = e => valgtStart = e.target.value;
   document.querySelectorAll('.dlbtns button').forEach(b => b.onclick = async () => {
     b.disabled = true;
-    try { await post('/api/hent', { id: g.id, f: b.dataset.f || null }); toast('Lagt i kø: ' + b.textContent.replace('⤓ ', '')); $('#ov').classList.remove('on'); $('#jobs').classList.add('on'); poll(); }
+    const start = startTime($('#start').value);
+    try { await post('/api/hent', { id: g.id, f: b.dataset.f || null, start }); toast((start ? `Starter ${startTxt(start)}: ` : 'Lagt i kø: ') + b.textContent.replace('⤓ ', '')); $('#ov').classList.remove('on'); $('#jobs').classList.add('on'); poll(); }
     catch (e) { toast(e.message); b.disabled = false; }
   });
 }
@@ -248,8 +269,11 @@ function jobHtml(j) {
   let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl' }[j.state];
   if (j.state === 'henter') st += ` · ${gb(j.done)} af ${gb(j.size)} · ${(j.speed / 1e6).toFixed(1)} MB/s` + (j.eta ? ` · ${dur(j.eta)} tilbage` : '');
   else if (j.state !== 'faerdig') st += ` · ${gb(j.done)} af ${gb(j.size)}`;
+  const senere = j.state === 'venter' && j.start * 1000 > Date.now();
+  if (senere) st = `Starter ${startTxt(j.start)} · ${gb(j.size)}`;
   const cls = j.state === 'faerdig' ? 'ok' : j.state === 'fejl' ? 'err' : '';
   const acts = (j.state === 'fejl' ? `<button class="btn small" data-a="igen" data-n="${j.n}">Prøv igen</button>` : '')
+    + (senere ? `<button class="btn small" data-a="nu" data-n="${j.n}">Start nu</button>` : '')
     + `<button class="btn small" data-a="fjern" data-n="${j.n}">${j.state === 'faerdig' ? 'Skjul' : 'Fjern'}</button>`;
   return `<div class="job"><b>${esc(j.title)} – ${esc(j.file)}</b><div class="acts">${acts}</div>
     <div class="prog ${cls}"><i style="width:${pct}%"></i></div><small class="muted">${st}${j.msg ? ' · ' + esc(j.msg) : ''}</small></div>`;
