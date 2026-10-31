@@ -13,6 +13,17 @@
     .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
     .pwrap { box-shadow: none; transition: none; }
     .card { cursor: pointer; }
+    .kan { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 15px; }
+    .pwrap .kan { position: absolute; left: 6px; bottom: 6px; box-shadow: 0 0 0 2px rgba(0,0,0,.55); }
+    .kan.ja { background: #2f9e62; }
+    .kan.min { background: #c98a1b; }
+    .kan.nej { background: #c0453a; }
+    .kan.ukendt { background: #6b7280; }
+    .kanrow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+    .specs { flex-direction: column; width: min(520px, 94vw); gap: 12px; }
+    .specs label { display: flex; flex-direction: column; gap: 4px; }
+    .specs select { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 16px; }
+    .specs .kanrow { margin: 0; }
     /* spillets boks */
     #ov { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 20; }
     #ov.on { display: flex; }
@@ -52,6 +63,7 @@
       <button class="chip" data-k="software">Software</button>
     </div>
     <div class="right">
+      <button class="btn" id="specs">💻 Min PC</button>
       <button class="btn" id="eject">⏏ Skub disk ud</button>
       <button class="btn" id="off">⏻ Sluk</button>
     </div>
@@ -88,11 +100,14 @@ function poster(g) {
   return g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`;
 }
 
+const KAN = { ja: ['✓', 'Opfylder anbefalet'], min: ['~', 'Opfylder minimum'], nej: ['✕', 'Kan næppe spilles'], ukendt: ['?', 'Kan ikke vurderes'] };
+const kanIcon = (k, why) => `<span class="kan ${k}" title="${esc(why || KAN[k][1])}">${KAN[k][0]}</span>`;
+
 function render() {
   const t = $('#q').value.trim().toLowerCase();
   const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || g.kind === kind));
   $('#n').textContent = list.length;
-  $('#grid').innerHTML = list.map(g => `<div class="card" data-id="${g.id}"><div class="pwrap">${poster(g)}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span></div>
+  $('#grid').innerHTML = list.map(g => `<div class="card" data-id="${g.id}"><div class="pwrap">${poster(g)}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span>${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>
     <div class="cap"><b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></div></div>`).join('');
 }
 
@@ -109,6 +124,7 @@ function open(id) {
     <p class="sub"><span class="badge ${esc(g.kind)} inline">${esc(g.label)}</span>${g.grp ? `<span>${esc(g.grp)}</span>` : ''}<span>${gb(g.size)}</span></p>
     <p class="genres">${g.genres.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</p>
     <p class="short">${esc(g.short)}</p>
+    ${g.kan ? `<div class="kanrow">${kanIcon(g.kan, g.kan_why)}<span><b>${KAN[g.kan][1]}</b> <span class="muted small">${esc(g.kan_why)}</span></span></div>` : ''}
     ${reqs('Minimum', g.req_min)}${reqs('Anbefalet', g.req_rec)}
     <div class="dlbtns">${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
   $('#ov').classList.add('on');
@@ -119,6 +135,28 @@ function open(id) {
     catch (e) { toast(e.message); b.disabled = false; }
   });
 }
+
+async function openSpecs() {
+  const s = await (await fetch('/api/specs')).json();
+  const opts = (l, v) => '<option value="">Vælg…</option>' + l.map(x => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  const rams = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128];
+  $('#box').className = 'box specs';
+  $('#box').innerHTML = `<div style="display:flex"><h1>Min PC</h1><button class="btn x" id="close">✕</button></div>
+    <label>Processor<select id="cpu">${opts(s.cpus, s.pc.cpu)}</select></label>
+    <label>Grafikkort<select id="gpu">${opts(s.gpus, s.pc.gpu)}</select></label>
+    <label>RAM (GB)<select id="ram"><option value="0">Vælg…</option>${rams.map(r => `<option value="${r}"${r === s.pc.ram ? ' selected' : ''}>${r} GB</option>`).join('')}</select></label>
+    <button class="btn primary" id="save">Gem</button>
+    ${Object.keys(KAN).map(k => `<div class="kanrow">${kanIcon(k)}<span class="small">${KAN[k][1]}</span></div>`).join('')}
+    <p class="muted small">Vurderingen er vejledende: den sammenligner omtrentlige ydelsestal med Steams krav. Står din model ikke på listen, så vælg den nærmeste.</p>`;
+  $('#ov').classList.add('on');
+  $('#close').onclick = closeBox;
+  $('#save').onclick = async () => {
+    try { await post('/api/specs', { cpu: $('#cpu').value, gpu: $('#gpu').value, ram: +$('#ram').value }); closeBox(); toast('Gemt'); load(); }
+    catch (e) { toast(e.message); }
+  };
+}
+
+function closeBox() { $('#ov').classList.remove('on'); $('#box').className = 'box'; }
 
 function jobHtml(j) {
   const pct = j.size ? Math.min(100, j.done / j.size * 100) : 0;
@@ -153,7 +191,8 @@ $('#jobs').onclick = async e => {
 };
 $('#qbtn').onclick = () => $('#jobs').classList.toggle('on');
 $('#grid').onclick = e => { const c = e.target.closest('.card'); if (c) open(c.dataset.id); };
-$('#ov').onclick = e => { if (e.target.id === 'ov') $('#ov').classList.remove('on'); };
+$('#ov').onclick = e => { if (e.target.id === 'ov') closeBox(); };
+$('#specs').onclick = openSpecs;
 $('#q').oninput = render;
 document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
   document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); kind = b.dataset.k; render(); });

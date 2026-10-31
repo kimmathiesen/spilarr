@@ -3,6 +3,7 @@ mod db;
 mod download;
 mod import;
 mod klient;
+mod krav;
 mod scan;
 mod steam;
 mod unpack;

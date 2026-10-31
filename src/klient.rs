@@ -13,6 +13,9 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::krav::{self, Specs};
 
 const GB: f64 = 1e9;
 
@@ -93,6 +96,7 @@ pub struct K {
     cfg: Cfg,
     jobs: Mutex<Vec<Job>>,
     live: Mutex<Live>,
+    specs: Mutex<Specs>,
     http: reqwest::Client,
 }
 
@@ -159,10 +163,12 @@ pub async fn run(cfg: Cfg) {
         j.state = Tilstand::Venter;
     }
     let addr = format!("{}:{}", cfg.bind, cfg.port);
+    let specs = fs::read(cfg.state.join("specs.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let k: Shared = Arc::new(K {
         cfg,
         jobs: Mutex::new(jobs),
         live: Mutex::new(Live::default()),
+        specs: Mutex::new(specs),
         http: reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).build().expect("http"),
     });
 
@@ -191,6 +197,7 @@ pub async fn run(cfg: Cfg) {
         .route("/", get(page))
         .route("/static/style.css", get(css))
         .route("/api/spil", get(games))
+        .route("/api/specs", get(get_specs).post(set_specs))
         .route("/img/{appid}/{kind}", get(img))
         .route("/api/status", get(status))
         .route("/api/hent", post(enqueue))
@@ -361,7 +368,40 @@ async fn games(State(k): State<Shared>) -> Response {
         },
         _ => tokio::fs::read(&cache).await.unwrap_or_else(|_| b"[]".to_vec()),
     };
+    let body = med_vurdering(body, &k.specs.lock().unwrap());
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
+}
+
+/// Tilføjer `kan` og `kan_why` på hvert spil, når PC'ens specs er indtastet.
+fn med_vurdering(body: Vec<u8>, pc: &Specs) -> Vec<u8> {
+    if pc.is_empty() {
+        return body;
+    }
+    let Ok(mut list) = serde_json::from_slice::<Vec<Value>>(&body) else { return body };
+    let strs = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default() };
+    for g in list.iter_mut().filter(|g| g["kind"] != "software") {
+        let (kan, why) = krav::vurder(pc, &strs(&g["req_min"]), &strs(&g["req_rec"]));
+        g["kan"] = kan.into();
+        g["kan_why"] = why.into();
+    }
+    serde_json::to_vec(&list).unwrap_or_default()
+}
+
+async fn get_specs(State(k): State<Shared>) -> Json<Value> {
+    let names = |t: &[(&str, u32)]| { let mut v: Vec<String> = t.iter().map(|m| m.0.to_string()).collect(); v.sort(); v };
+    Json(serde_json::json!({ "pc": *k.specs.lock().unwrap(), "cpus": names(krav::CPUS), "gpus": names(krav::GPUS) }))
+}
+
+async fn set_specs(State(k): State<Shared>, Json(pc): Json<Specs>) -> Response {
+    let ok = (pc.cpu.is_empty() || krav::CPUS.iter().any(|m| m.0 == pc.cpu)) && (pc.gpu.is_empty() || krav::GPUS.iter().any(|m| m.0 == pc.gpu));
+    if !ok {
+        return (StatusCode::BAD_REQUEST, "Ukendt komponent").into_response();
+    }
+    if let Err(e) = serde_json::to_vec(&pc).map_err(std::io::Error::other).and_then(|b| fs::write(k.cfg.state.join("specs.json"), b)) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Kan ikke gemme: {e}")).into_response();
+    }
+    *k.specs.lock().unwrap() = pc;
+    StatusCode::NO_CONTENT.into_response()
 }
 
 /// Plakater gemmes på SD-kortet, så de ikke hentes igen hver gang.
