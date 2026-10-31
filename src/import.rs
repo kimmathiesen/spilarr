@@ -77,7 +77,9 @@ fn import(app: &App, src: &Path) -> Result<String, String> {
     let name = dest_name(&raw, src.is_file());
     let games = &app.cfg.games;
     let dest = games.join(&name);
-    if dest.exists() {
+    // En mappe med kun updates lægges spillet ind i, så updates bliver liggende urørt
+    let merge = dest.exists();
+    if merge && !only_updates(&dest) {
         return Err(format!("{name} findes allerede i spilmappen"));
     }
     let tmp = games.join(TMP).join(&name);
@@ -86,12 +88,36 @@ fn import(app: &App, src: &Path) -> Result<String, String> {
     }
     std::fs::create_dir_all(&tmp).map_err(|e| format!("kan ikke oprette {}: {e}", tmp.display()))?;
     let res = fill(app, src, &tmp).and_then(|_| {
-        std::fs::rename(&tmp, &dest).map_err(|e| format!("kan ikke flytte på plads: {e}"))
+        if merge {
+            move_into(&tmp, &dest)
+        } else {
+            std::fs::rename(&tmp, &dest).map_err(|e| format!("kan ikke flytte på plads: {e}"))
+        }
     });
     if res.is_err() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
     res.map(|_| name)
+}
+
+/// Sand, hvis mappen højst indeholder en undermappe `updates`.
+fn only_updates(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut r| {
+        r.all(|e| e.is_ok_and(|e| e.path().is_dir() && e.file_name().to_string_lossy().eq_ignore_ascii_case("updates")))
+    })
+}
+
+/// Flytter indholdet af tmp ind i en eksisterende mappe og fjerner tmp. Overskriver ikke noget.
+fn move_into(tmp: &Path, dest: &Path) -> Result<(), String> {
+    let list = |p: &Path| std::fs::read_dir(p).and_then(|r| r.collect::<Result<Vec<_>, _>>()).map_err(|e| format!("kan ikke læse {}: {e}", p.display()));
+    let entries = list(tmp)?;
+    if let Some(e) = entries.iter().find(|e| dest.join(e.file_name()).exists()) {
+        return Err(format!("{} findes allerede i {}", e.file_name().to_string_lossy(), dest.display()));
+    }
+    for e in &entries {
+        std::fs::rename(e.path(), dest.join(e.file_name())).map_err(|e| format!("kan ikke flytte på plads: {e}"))?;
+    }
+    std::fs::remove_dir(tmp).map_err(|e| format!("kan ikke fjerne {}: {e}", tmp.display()))
 }
 
 /// Hardlinker alt undtagen rar-volumener og sample, og pakker første rar-volumen af hvert arkiv ud.
@@ -225,6 +251,28 @@ mod tests {
         assert_eq!(rar_volume("game.s12"), Some(false));
         assert_eq!(rar_volume("game.t06"), Some(false));
         assert_eq!(rar_volume("game.iso"), None);
+    }
+
+    #[test]
+    fn merge_into_updates_folder() {
+        let root = std::env::temp_dir().join(format!("spilarr-merge-{}", std::process::id()));
+        let (dest, tmp) = (root.join("dest"), root.join("tmp"));
+        std::fs::create_dir_all(dest.join("updates/v1")).unwrap();
+        std::fs::write(dest.join("updates/v1/u.rar"), "u").unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("game.iso"), "g").unwrap();
+
+        assert!(only_updates(&dest));
+        move_into(&tmp, &dest).unwrap();
+        assert!(dest.join("game.iso").is_file() && dest.join("updates/v1/u.rar").is_file() && !tmp.exists());
+        assert!(!only_updates(&dest));
+
+        // Overskriver ikke
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("game.iso"), "ny").unwrap();
+        assert!(move_into(&tmp, &dest).is_err());
+        assert_eq!(std::fs::read_to_string(dest.join("game.iso")).unwrap(), "g");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
