@@ -26,6 +26,7 @@ pub fn router(app: Shared) -> Router {
         .route("/spil/{id}/match", post(rematch))
         .route("/spil/{id}/hent", get(download::file))
         .route("/spil/{id}/zip", get(download::folder))
+        .route("/spil/{id}/crc", get(download::crc))
         .route("/scan", post(scan_now))
         .route("/status", get(status))
         .route("/api/spil", get(api_games))

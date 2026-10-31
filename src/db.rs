@@ -15,9 +15,20 @@ pub fn open(p: &Path) -> rusqlite::Result<Connection> {
             kind text, isos text, rars text, setups text, updates text, size int, mtime real,
             added real, seen real, appid int, meta text, locked int default 0, tried real);
          create table if not exists imports(
-            hash text primary key, name text, src text, dest text, ok int, msg text, time real)",
+            hash text primary key, name text, src text, dest text, ok int, msg text, time real);
+         create table if not exists crcs(path text primary key, size int, mtime int, crc int)",
     )?;
     Ok(c)
+}
+
+/// Gemt CRC, så længe filen er uændret.
+pub fn crc_get(c: &Connection, path: &str, size: u64, mtime: u64) -> Option<u32> {
+    c.query_row("select crc from crcs where path=? and size=? and mtime=?", params![path, size as i64, mtime as i64], |r| r.get(0)).ok()
+}
+
+pub fn crc_put(c: &Connection, path: &str, size: u64, mtime: u64, crc: u32) -> rusqlite::Result<()> {
+    c.execute("insert or replace into crcs(path, size, mtime, crc) values(?,?,?,?)", params![path, size as i64, mtime as i64, crc])?;
+    Ok(())
 }
 
 #[derive(Clone)]

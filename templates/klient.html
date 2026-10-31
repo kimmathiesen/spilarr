@@ -72,6 +72,7 @@
       <button class="chip" data-k="software">Software</button>
     </div>
     <div class="right">
+      <button class="btn primary" id="opdater" style="display:none">⬆ Ny version</button>
       <button class="btn" id="wifi" style="display:none">📶 Wifi</button>
       <button class="btn" id="specs">💻 Min PC</button>
       <button class="btn" id="eject">⏏ Skub disk ud</button>
@@ -259,21 +260,25 @@ let udenNet = 0, spurgt = false;
 function netStatus(n) {
   $('#wifi').style.display = n.wifi_kort ? '' : 'none';
   $('#ndot').className = 'dot' + (n.kabel || n.wifi ? ' ok' : '');
-  $('#ntxt').textContent = n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net';
+  $('#ntxt').textContent = (n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net') + (n.driver_mangler ? ' – wifi-driveren mangler (ny kerne?)' : '');
   if (n.kabel || n.wifi) { udenNet = 0; spurgt = false; return; }
   if (n.wifi_kort && !spurgt && ++udenNet >= 8 && !$('#ov').classList.contains('on')) { spurgt = true; askWifi(); }
 }
 
 function jobHtml(j) {
   const pct = j.size ? Math.min(100, j.done / j.size * 100) : 0;
-  let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl' }[j.state];
+  let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl', tjekker: 'Tjekker filen' }[j.state];
   if (j.state === 'henter') st += ` · ${gb(j.done)} af ${gb(j.size)} · ${(j.speed / 1e6).toFixed(1)} MB/s` + (j.eta ? ` · ${dur(j.eta)} tilbage` : '');
-  else if (j.state !== 'faerdig') st += ` · ${gb(j.done)} af ${gb(j.size)}`;
+  else if (j.state !== 'faerdig' && j.state !== 'tjekker') st += ` · ${gb(j.done)} af ${gb(j.size)}`;
   const senere = j.state === 'venter' && j.start * 1000 > Date.now();
   if (senere) st = `Starter ${startTxt(j.start)} · ${gb(j.size)}`;
+  if (j.pause) st = `På pause · ${gb(j.done)} af ${gb(j.size)}`;
+  const aktiv = j.state === 'henter' || j.state === 'tjekker', ufaerdig = j.state !== 'faerdig';
   const cls = j.state === 'faerdig' ? 'ok' : j.state === 'fejl' ? 'err' : '';
   const acts = (j.state === 'fejl' ? `<button class="btn small" data-a="igen" data-n="${j.n}">Prøv igen</button>` : '')
     + (senere ? `<button class="btn small" data-a="nu" data-n="${j.n}">Start nu</button>` : '')
+    + (ufaerdig ? `<button class="btn small" data-a="pause" data-n="${j.n}">${j.pause ? '▶' : '⏸'}</button>` : '')
+    + (ufaerdig && !aktiv ? `<button class="btn small" data-a="op" data-n="${j.n}">▲</button><button class="btn small" data-a="ned" data-n="${j.n}">▼</button>` : '')
     + `<button class="btn small" data-a="fjern" data-n="${j.n}">${j.state === 'faerdig' ? 'Skjul' : 'Fjern'}</button>`;
   return `<div class="job"><b>${esc(j.title)} – ${esc(j.file)}</b><div class="acts">${acts}</div>
     <div class="prog ${cls}"><i style="width:${pct}%"></i></div><small class="muted">${st}${j.msg ? ' · ' + esc(j.msg) : ''}</small></div>`;
@@ -290,7 +295,9 @@ async function poll() {
     $('#dtxt').textContent = d.ok ? `Disk (${d.fs}): ${gb(d.free)} fri af ${gb(d.total)}${d.msg ? ' – ' + d.msg : ''}` : d.msg;
     const act = s.jobs.filter(j => j.state !== 'faerdig'), cur = s.jobs.find(j => j.state === 'henter');
     $('#qbtn').textContent = 'Downloads' + (act.length ? ` (${act.length})` : '') + (cur ? ` · ${Math.floor(cur.done / cur.size * 100)} %` : '');
-    $('#jobs').innerHTML = s.jobs.length ? s.jobs.slice().reverse().map(jobHtml).join('') : '<p class="muted">Ingen downloads endnu. Vælg et spil og tryk Hent.</p>';
+    // Næste i køen øverst, derefter de færdige med de nyeste først
+    const done = s.jobs.filter(j => j.state === 'faerdig').reverse();
+    $('#jobs').innerHTML = s.jobs.length ? act.concat(done).map(jobHtml).join('') :'<p class="muted">Ingen downloads endnu. Vælg et spil og tryk Hent.</p>';
   } catch (e) { $('#stxt').textContent = 'Klienten svarer ikke'; }
 }
 
@@ -304,6 +311,15 @@ $('#grid').onclick = e => { const c = e.target.closest('.card'); if (c) open(c.d
 $('#ov').onclick = e => { if (e.target.id === 'ov') closeBox(); };
 $('#specs').onclick = openSpecs;
 $('#wifi').onclick = openWifi;
+async function checkUpdate() {
+  try { const r = await (await fetch('/api/opdatering')).json(); $('#opdater').style.display = r.ny ? '' : 'none'; } catch (e) {}
+}
+$('#opdater').onclick = async () => {
+  const henter = last && last.jobs.some(j => j.state === 'henter');
+  if (!confirm(henter ? 'Downloaden afbrydes kort og fortsætter bagefter. Opdater?' : 'Opdater SpilarrOS?')) return;
+  try { toast(await post('/api/opdatering')); setTimeout(() => location.reload(), 20000); } catch (e) { toast(e.message); }
+};
+checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
 $('#q').oninput = render;
 document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
   document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); kind = b.dataset.k; render(); });

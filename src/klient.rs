@@ -48,6 +48,8 @@ enum Tilstand {
     Henter,
     Faerdig,
     Fejl,
+    /// Hentet; filen tjekkes, inden den får sit rigtige navn
+    Tjekker,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -74,6 +76,8 @@ struct Job {
     /// Unix-tid, hvor downloaden må starte (0 = med det samme)
     #[serde(default)]
     start: f64,
+    #[serde(default)]
+    pause: bool,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -162,7 +166,7 @@ pub async fn run(cfg: Cfg) {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     // En download, der var i gang ved nedlukning, fortsætter
-    for j in jobs.iter_mut().filter(|j| j.state == Tilstand::Henter) {
+    for j in jobs.iter_mut().filter(|j| j.state == Tilstand::Henter || j.state == Tilstand::Tjekker) {
         j.state = Tilstand::Venter;
     }
     let addr = format!("{}:{}", cfg.bind, cfg.port);
@@ -207,6 +211,10 @@ pub async fn run(cfg: Cfg) {
         .route("/api/job/{n}/fjern", post(remove))
         .route("/api/job/{n}/igen", post(retry))
         .route("/api/job/{n}/nu", post(start_now))
+        .route("/api/job/{n}/pause", post(toggle_pause))
+        .route("/api/job/{n}/op", post(move_up))
+        .route("/api/job/{n}/ned", post(move_down))
+        .route("/api/opdatering", get(update_check).post(update_run))
         .route("/api/udskub", post(eject))
         .route("/api/sluk", post(poweroff))
         .route("/api/wifi", get(wifi_list).post(wifi_connect))
@@ -228,7 +236,7 @@ fn worker(k: &K) {
         let next = {
             let jobs = k.jobs.lock().unwrap();
             jobs.iter()
-                .find(|j| (j.state == Tilstand::Venter && j.start <= now()) || (j.state == Tilstand::Fejl && j.retry > 0.0 && j.retry <= now()))
+                .find(|j| !j.pause && ((j.state == Tilstand::Venter && j.start <= now()) || (j.state == Tilstand::Fejl && j.retry > 0.0 && j.retry <= now())))
                 .cloned()
         };
         let Some(job) = next else {
@@ -258,7 +266,12 @@ fn worker(k: &K) {
             std::mem::take(&mut l.stop)
         };
         if stopped {
-            continue; // fjernet fra køen imens
+            // Fjernet fra køen eller sat på pause imens
+            k.update(job.n, |j| {
+                j.state = Tilstand::Venter;
+                j.msg.clear();
+            });
+            continue;
         }
         match res {
             Ok(()) => k.update(job.n, |j| {
@@ -268,10 +281,15 @@ fn worker(k: &K) {
             }),
             Err(e) => {
                 eprintln!("{}: {e}", job.file);
+                // En beskadiget fil er slettet; den hentes ikke forfra uden at blive bedt om det
+                let auto = !e.starts_with(BESKADIGET);
                 k.update(job.n, |j| {
                     j.state = Tilstand::Fejl;
                     j.msg = e;
-                    j.retry = now() + 30.0;
+                    j.retry = if auto { now() + 30.0 } else { 0.0 };
+                    if !auto {
+                        j.done = 0;
+                    }
                 })
             }
         }
@@ -291,11 +309,16 @@ fn fetch(k: &K, http: &reqwest::blocking::Client, job: &Job, d: &Disk) -> Result
     if let Some(p) = part.parent() {
         fs::create_dir_all(p).map_err(|e| format!("Kan ikke oprette mappe: {e}"))?;
     }
-    // Zip'en kan ikke genoptages (indholdet laves undervejs) – start forfra
-    let mut start = if job.zip { 0 } else { part.metadata().map(|m| m.len()).unwrap_or(0) };
+    let mut start = part.metadata().map(|m| m.len()).unwrap_or(0);
     if start > job.size {
         start = 0;
     }
+    // Færdighentet, men ikke tjekket (fx slukket under tjekket)
+    if start == job.size && start > 0 {
+        return check_and_finish(k, http, job, &part, &dest);
+    }
+    // Slutningen kan være tabt ved strømsvigt – hent det sidste igen
+    start = start.saturating_sub(RESUME_BACK);
     let need = job.size - start;
     if d.free < need + (GB as u64 / 2) {
         return Err(format!("Ikke plads nok på disken ({:.1} GB fri, {:.1} GB mangler)", d.free as f64 / GB, need as f64 / GB));
@@ -310,6 +333,20 @@ fn fetch(k: &K, http: &reqwest::blocking::Client, job: &Job, d: &Disk) -> Result
         start = 0;
     } else if status != StatusCode::PARTIAL_CONTENT {
         return Err(format!("Serveren svarede {status}"));
+    }
+    // Mappen kan være ændret på serveren, så de hentede bytes ikke længere passer
+    let total = if status == StatusCode::OK {
+        res.content_length()
+    } else {
+        res.headers().get(header::CONTENT_RANGE).and_then(|v| v.to_str().ok()?.rsplit('/').next()?.parse().ok())
+    };
+    if let Some(t) = total.filter(|t| *t != job.size) {
+        let _ = fs::remove_file(&part);
+        k.update(job.n, |j| {
+            j.size = t;
+            j.done = 0;
+        });
+        return Err("Filen er ændret på serveren – starter forfra".into());
     }
     let mut f = OpenOptions::new().create(true).write(true).truncate(start == 0).open(&part)
         .map_err(|e| format!("Kan ikke skrive til disken: {e}"))?;
@@ -345,14 +382,134 @@ fn fetch(k: &K, http: &reqwest::blocking::Client, job: &Job, d: &Disk) -> Result
     if done != job.size {
         return Err(format!("Ufuldstændig: {:.1} af {:.1} GB", done as f64 / GB, job.size as f64 / GB));
     }
-    fs::rename(&part, &dest).map_err(|e| format!("Kan ikke omdøbe: {e}"))?;
+    drop(f);
+    check_and_finish(k, http, job, &part, &dest)
+}
+
+const BESKADIGET: &str = "Filen er beskadiget";
+const RESUME_BACK: u64 = 1 << 22;
+
+/// Tjekker `part` mod CRC'erne og giver den sit rigtige navn. Ved fejl slettes den.
+fn check_and_finish(k: &K, http: &reqwest::blocking::Client, job: &Job, part: &Path, dest: &Path) -> Result<(), String> {
+    k.update(job.n, |j| {
+        j.state = Tilstand::Tjekker;
+        j.done = j.size;
+    });
+    // Tilbagemelding undervejs; false = stop (fjernet eller på pause)
+    let mut t = Instant::now();
+    let mut progress = |done: u64, total: u64| {
+        if t.elapsed().as_secs() >= 2 {
+            t = Instant::now();
+            k.update(job.n, |j| j.msg = format!("{} %", done * 100 / total.max(1)));
+        }
+        !k.live.lock().unwrap().stop
+    };
+    let open = || fs::File::open(part).map_err(|e| format!("Kan ikke læse filen: {e}"));
+    let r = if job.zip {
+        verify_zip(&mut open()?, job.size, &mut progress)
+    } else {
+        // Serveren regner CRC'en første gang, så det kan tage et par minutter
+        let url = format!("{}{}", k.cfg.server, job.url.replace("/hent?", "/crc?"));
+        let res = http.get(url).send().map_err(|_| "Ingen forbindelse til serveren under tjekket".to_string())?;
+        if res.status() == StatusCode::NOT_FOUND {
+            Ok(()) // Ældre server uden CRC
+        } else if !res.status().is_success() {
+            return Err(format!("Serveren svarede {} under tjekket", res.status()));
+        } else {
+            let want = res.text().map_err(|_| "Forbindelsen blev afbrudt under tjekket".to_string())?;
+            let want = u32::from_str_radix(want.trim(), 16).map_err(|_| "Ugyldigt svar fra serveren".to_string())?;
+            let mut f = open()?;
+            crc_of(&mut f, job.size, 0, job.size, &mut progress).and_then(|c| if c == want { Ok(()) } else { Err(format!("{BESKADIGET} – prøv igen")) })
+        }
+    };
+    if k.live.lock().unwrap().stop {
+        return Ok(());
+    }
+    if let Err(e) = r {
+        if e.starts_with(BESKADIGET) {
+            let _ = fs::remove_file(part);
+        }
+        return Err(e);
+    }
+    fs::rename(part, dest).map_err(|e| format!("Kan ikke omdøbe: {e}"))
+}
+
+/// CRC af `len` bytes fra den aktuelle position. `seen` er det, der allerede er tjekket ud af `total`.
+fn crc_of<R: Read>(f: &mut R, len: u64, seen: u64, total: u64, progress: &mut dyn FnMut(u64, u64) -> bool) -> Result<u32, String> {
+    let (mut crc, mut buf, mut n) = (crc32fast::Hasher::new(), vec![0u8; 1 << 20], 0u64);
+    while n < len {
+        let want = (len - n).min(buf.len() as u64) as usize;
+        let r = f.read(&mut buf[..want]).map_err(|e| format!("Læsefejl på disken: {e}"))?;
+        if r == 0 {
+            return Err(format!("{BESKADIGET}: den er for kort"));
+        }
+        crc.update(&buf[..r]);
+        n += r as u64;
+        if !progress(seen + n, total) {
+            return Err("Stoppet".into());
+        }
+    }
+    Ok(crc.finalize())
+}
+
+/// Tjekker alle filer i en zip fra `download::write_zip` mod CRC'erne i dens indholdsfortegnelse.
+fn verify_zip<R: Read + std::io::Seek>(f: &mut R, len: u64, progress: &mut dyn FnMut(u64, u64) -> bool) -> Result<(), String> {
+    use std::io::SeekFrom;
+    let bad = || format!("{BESKADIGET}: indholdsfortegnelsen er ugyldig");
+    let u16_at = |b: &[u8], i: usize| b.get(i..i + 2).map(|s| u16::from_le_bytes([s[0], s[1]]));
+    let u32_at = |b: &[u8], i: usize| b.get(i..i + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
+    let u64_at = |b: &[u8], i: usize| b.get(i..i + 8).and_then(|s| s.try_into().ok()).map(u64::from_le_bytes);
+    let io = |e: std::io::Error| format!("Læsefejl på disken: {e}");
+
+    const END: u64 = 56 + 20 + 22;
+    if len < END {
+        return Err(bad());
+    }
+    let mut end = [0u8; 56];
+    f.seek(SeekFrom::Start(len - END)).map_err(io)?;
+    f.read_exact(&mut end).map_err(|_| bad())?;
+    if u32_at(&end, 0) != Some(0x06064b50) {
+        return Err(bad());
+    }
+    let (cd_size, cd_start) = (u64_at(&end, 40).ok_or_else(bad)?, u64_at(&end, 48).ok_or_else(bad)?);
+    if cd_start.checked_add(cd_size) != Some(len - END) {
+        return Err(bad());
+    }
+    let mut cd = vec![0u8; cd_size as usize];
+    f.seek(SeekFrom::Start(cd_start)).map_err(io)?;
+    f.read_exact(&mut cd).map_err(|_| bad())?;
+
+    let (mut i, mut seen) = (0usize, 0u64);
+    while i < cd.len() {
+        if u32_at(&cd, i) != Some(0x02014b50) {
+            return Err(bad());
+        }
+        let crc = u32_at(&cd, i + 16).ok_or_else(bad)?;
+        let name_len = u16_at(&cd, i + 28).ok_or_else(bad)? as usize;
+        let extra_len = u16_at(&cd, i + 30).ok_or_else(bad)? as usize;
+        let extra = i + 46 + name_len;
+        let (size, off) = (u64_at(&cd, extra + 4).ok_or_else(bad)?, u64_at(&cd, extra + 20).ok_or_else(bad)?);
+        let name = cd.get(i + 46..extra).map(String::from_utf8_lossy).ok_or_else(bad)?.to_string();
+        f.seek(SeekFrom::Start(off + 50 + name_len as u64)).map_err(io)?;
+        if crc_of(f, size, seen, cd_start, progress)? != crc {
+            return Err(format!("{BESKADIGET} ({name}) – prøv igen"));
+        }
+        seen += size;
+        i = extra + extra_len;
+    }
     Ok(())
+}
+
+#[cfg(test)]
+pub fn verify_zip_bytes(b: &[u8]) -> Result<(), String> {
+    verify_zip(&mut std::io::Cursor::new(b), b.len() as u64, &mut |_, _| true)
 }
 
 // ---------- HTTP ----------
 
-async fn page() -> Html<&'static str> {
-    Html(include_str!("../templates/klient.html"))
+/// Må ikke gemmes af kiosken, så en opdatering viser den nye side med det samme.
+async fn page() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Html(include_str!("../templates/klient.html")))
 }
 
 async fn css() -> Response {
@@ -528,7 +685,7 @@ async fn enqueue(State(k): State<Shared>, Json(h): Json<HentF>) -> Response {
     }
     let mut jobs = k.jobs.lock().unwrap();
     let n = jobs.iter().map(|j| j.n).max().unwrap_or(0) + 1;
-    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0, start: h.start });
+    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0, start: h.start, pause: false });
     k.save(&jobs);
     Json(serde_json::json!({ "n": n })).into_response()
 }
@@ -574,6 +731,76 @@ async fn start_now(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusC
     StatusCode::NO_CONTENT
 }
 
+/// Pause gemmer det hentede, så downloaden fortsætter, hvor den slap.
+async fn toggle_pause(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusCode {
+    let mut pause = false;
+    k.update(n, |j| {
+        j.pause = !j.pause;
+        pause = j.pause;
+    });
+    let mut l = k.live.lock().unwrap();
+    if pause && l.current == Some(n) {
+        l.stop = true;
+    }
+    StatusCode::NO_CONTENT
+}
+
+/// Bytter plads med nærmeste ufærdige job i den retning. Det job, der hentes, afbrydes ikke.
+fn flyt(jobs: &mut [Job], n: u64, op: bool) {
+    let Some(i) = jobs.iter().position(|j| j.n == n) else { return };
+    let waits = |j: &Job| j.state != Tilstand::Faerdig;
+    let other = if op { jobs[..i].iter().rposition(waits) } else { jobs[i + 1..].iter().position(waits).map(|p| p + i + 1) };
+    if let Some(o) = other {
+        jobs.swap(i, o);
+    }
+}
+
+fn flyt_job(k: &K, n: u64, op: bool) -> StatusCode {
+    let mut jobs = k.jobs.lock().unwrap();
+    flyt(&mut jobs, n, op);
+    k.save(&jobs);
+    StatusCode::NO_CONTENT
+}
+
+async fn move_up(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusCode {
+    flyt_job(&k, n, true)
+}
+
+async fn move_down(State(k): State<Shared>, UrlPath(n): UrlPath<u64>) -> StatusCode {
+    flyt_job(&k, n, false)
+}
+
+// ---------- Opdatering ----------
+
+const RELEASE: &str = "https://github.com/kimmathiesen/spilarr/releases/download/spilarros/spilarr-aarch64.sha256";
+
+/// Sammenligner programmet med den seneste release.
+async fn update_check(State(k): State<Shared>) -> Response {
+    let r = k.http.get(RELEASE).timeout(Duration::from_secs(20)).send().await;
+    let Some(want) = (match r {
+        Ok(r) if r.status().is_success() => r.text().await.ok().and_then(|t| t.split_whitespace().next().map(String::from)),
+        _ => None,
+    }) else {
+        return Json(serde_json::json!({ "ny": false, "kendt": false })).into_response();
+    };
+    let have = tokio::task::spawn_blocking(|| {
+        let exe = std::env::current_exe().ok()?;
+        let o = std::process::Command::new("sha256sum").arg(exe).output().ok()?;
+        String::from_utf8_lossy(&o.stdout).split_whitespace().next().map(String::from)
+    }).await.ok().flatten();
+    Json(serde_json::json!({ "ny": have.is_some_and(|h| h != want), "kendt": true })).into_response()
+}
+
+/// Opdateringen genstarter klienten, så svaret sendes, før den er færdig. Køen fortsætter bagefter.
+async fn update_run() -> Response {
+    let r = std::process::Command::new("sudo").args(["-n", "/usr/local/sbin/spilarros-opdater"])
+        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    match r {
+        Ok(_) => (StatusCode::ACCEPTED, "Opdaterer …").into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 fn sudo(args: &[&str]) -> Result<(), String> {
     let o = std::process::Command::new("sudo").arg("-n").args(args).output().map_err(|e| e.to_string())?;
     if o.status.success() {
@@ -617,6 +844,8 @@ struct Net {
     /// Boksen har et wifi-kort (driveren er indlæst)
     wifi_kort: bool,
     wifi: bool,
+    /// Wifi-chippen på X96 Mini findes, men driveren er ikke indlæst (fx efter en ny kerne)
+    driver_mangler: bool,
 }
 
 /// Læses fra /sys, da den spørges hvert andet sekund.
@@ -633,6 +862,8 @@ fn net() -> Net {
             n.kabel |= read("carrier") == "1";
         }
     }
+    let ssv = |e: fs::DirEntry| fs::read_to_string(e.path().join("vendor")).is_ok_and(|v| v.trim() == "0x3030");
+    n.driver_mangler = !n.wifi_kort && fs::read_dir("/sys/bus/sdio/devices").is_ok_and(|d| d.flatten().any(ssv));
     n
 }
 
@@ -734,6 +965,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn flyt_i_koen() {
+        let j = |n, state| Job { n, id: 1, title: String::new(), file: String::new(), url: String::new(), dest: String::new(),
+            zip: false, size: 1, done: 0, state, msg: String::new(), retry: 0.0, start: 0.0, pause: false };
+        let mut v = vec![j(1, Tilstand::Venter), j(2, Tilstand::Faerdig), j(3, Tilstand::Venter), j(4, Tilstand::Venter)];
+        let order = |v: &[Job]| v.iter().map(|j| j.n).collect::<Vec<_>>();
+        flyt(&mut v, 3, true);
+        assert_eq!(order(&v), [3, 2, 1, 4]);
+        flyt(&mut v, 3, true);
+        assert_eq!(order(&v), [3, 2, 1, 4]);
+        flyt(&mut v, 1, false);
+        assert_eq!(order(&v), [3, 2, 4, 1]);
+    }
+
+    #[test]
     fn wifi_liste() {
         let l = " :40:WPA2:Nabo\\:net\n*:78:WPA2 WPA3:Hjem\n :90:WPA2 WPA3:Hjem\n :60::Cafe\n :50:WPA2:\n";
         let g = "Hjem:802-11-wireless\nWired connection 1:802-3-ethernet\nNabo\\:net:802-3-ethernet\n";
@@ -762,7 +1007,7 @@ mod tests {
     #[test]
     fn job_json() {
         let j = Job { n: 1, id: 2, title: "T".into(), file: "a.iso".into(), url: "/spil/2/hent?f=a".into(), dest: "X/a.iso".into(),
-            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0, start: 0.0 };
+            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0, start: 0.0, pause: false };
         let s = serde_json::to_string(&j).unwrap();
         assert!(s.contains("\"state\":\"faerdig\""));
         let back: Job = serde_json::from_str(&s).unwrap();
