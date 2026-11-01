@@ -74,6 +74,9 @@ fn import(app: &App, src: &Path) -> Result<String, String> {
         return Err(format!("{} findes ikke (forkert sti eller mount?)", src.display()));
     }
     let raw = src.file_name().unwrap_or_default().to_string_lossy().to_string();
+    if is_update(&raw) {
+        return import_update(app, src, &raw);
+    }
     let name = dest_name(&raw, src.is_file());
     let games = &app.cfg.games;
     let dest = games.join(&name);
@@ -98,6 +101,63 @@ fn import(app: &App, src: &Path) -> Result<String, String> {
         let _ = std::fs::remove_dir_all(&tmp);
     }
     res.map(|_| name)
+}
+
+/// "Spil.Update.v1.2-RUNE", "Spil.Hotfix.3-RUNE" osv. Ikke fulde udgaver som "Spil.v1.2.incl.Update.3".
+pub fn is_update(raw: &str) -> bool {
+    !Regex::new(r"(?i)[._ ]incl[._ ]").expect("regex").is_match(raw)
+        && Regex::new(r"(?i)[._ ](update|hotfix|patch)([._ ]+(v?\d|build)|-[^-]*$|$)").expect("regex").is_match(raw)
+}
+
+/// Sammenligner titler uden hensyn til store bogstaver og tegn.
+fn norm(s: &str) -> String {
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// Finder spillets mappe ud fra titlen. Gruppen er ligegyldig, men foretrækkes, hvis flere udgaver findes.
+fn find_game(names: &[String], title: &str, grp: Option<&str>) -> Result<Option<String>, String> {
+    let re = Regex::new(r"^(?P<title>.+?)(?: \(\d{4}\))?(?: - (?P<group>[^-()]+))?$").expect("regex");
+    let parts = |n: &str| re.captures(n).map(|c| (c["title"].to_string(), c.name("group").map(|g| g.as_str().to_string())));
+    let hits: Vec<&String> = names.iter().filter(|n| parts(n).is_some_and(|p| norm(&p.0) == norm(title))).collect();
+    if hits.len() < 2 {
+        return Ok(hits.first().map(|n| n.to_string()));
+    }
+    let same: Vec<&&String> = hits.iter().filter(|n| parts(n).and_then(|p| p.1).as_deref() == grp).collect();
+    match same.as_slice() {
+        [one] => Ok(Some(one.to_string())),
+        _ => Err(format!("flere mapper passer til {title}: {}", hits.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", "))),
+    }
+}
+
+/// Lægger en update i `<spilmappe>/updates/<torrentnavn>`. Findes spillet ikke endnu, oprettes mappen, og spillet kan importeres ind i den senere.
+fn import_update(app: &App, src: &Path, raw: &str) -> Result<String, String> {
+    let games = &app.cfg.games;
+    let stem = if src.is_file() { src.file_stem().unwrap_or_default().to_string_lossy().to_string() } else { raw.to_string() };
+    let (title, grp) = split_name(&stem);
+    let names: Vec<String> = scan::folders(games).iter().map(|(p, _)| p.strip_prefix(games).unwrap_or(p).to_string_lossy().to_string()).collect();
+    let bare: Vec<String> = names.iter().map(|n| n.rsplit('/').next().unwrap_or(n).to_string()).collect();
+    let game = match find_game(&bare, &title, grp.as_deref())? {
+        Some(b) => names[bare.iter().position(|n| *n == b).unwrap_or(0)].clone(),
+        None => dest_name(raw, src.is_file()),
+    };
+    let dest = games.join(&game).join("updates").join(&stem);
+    if dest.exists() {
+        return Err(format!("{game}/updates/{stem} findes allerede"));
+    }
+    let tmp = games.join(TMP).join(&stem);
+    if tmp.exists() {
+        std::fs::remove_dir_all(&tmp).map_err(|e| format!("kan ikke rydde gammel tmp-mappe: {e}"))?;
+    }
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("kan ikke oprette {}: {e}", tmp.display()))?;
+    let res = fill(app, src, &tmp).and_then(|_| {
+        let up = games.join(&game).join("updates");
+        std::fs::create_dir_all(&up).map_err(|e| format!("kan ikke oprette {}: {e}", up.display()))?;
+        std::fs::rename(&tmp, &dest).map_err(|e| format!("kan ikke flytte på plads: {e}"))
+    });
+    if res.is_err() {
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    res.map(|_| format!("{game}/updates/{stem}"))
 }
 
 /// Sand, hvis mappen højst indeholder en undermappe `updates`.
@@ -174,7 +234,7 @@ pub fn extract(first: &Path, dir: &Path) -> Result<(), String> {
 }
 
 /// Ord i scene-navne, der ikke hører til titlen (alt fra første træf og frem skæres af).
-const TAGS: &str = r"(?i)\b(multi\d*|repack|proper|update|v\d+(\.\d+)*|build \d+|x64|x86|iso|incl|dlc|crack(fix)?|readnfo|gog)\b.*$";
+const TAGS: &str = r"(?i)\b(multi\d*|repack|proper|update|(hotfix|patch)( +(v?\d|build).*)?$|v\d+(\.\d+)*|build \d+|x64|x86|iso|incl|dlc|crack(fix)?|readnfo|gog)\b.*$";
 
 /// "Silent.Hill.2.Remake-RUNE" → "Silent Hill 2 Remake (2024) - RUNE". Navne, der allerede følger mønsteret, beholdes.
 pub fn dest_name(raw: &str, is_file: bool) -> String {
@@ -251,6 +311,34 @@ mod tests {
         assert_eq!(rar_volume("game.s12"), Some(false));
         assert_eq!(rar_volume("game.t06"), Some(false));
         assert_eq!(rar_volume("game.iso"), None);
+    }
+
+    #[test]
+    fn update_names() {
+        assert!(is_update("CONTROL.Resonant.Update.v1.4.2-RUNE"));
+        assert!(is_update("Spil.Update.4-CODEX"));
+        assert!(is_update("Spil.Hotfix.3-RUNE"));
+        assert!(is_update("Spil.Hotfix-RUNE"));
+        assert!(!is_update("Spil.v1.2.incl.Update.3-RUNE"));
+        assert!(!is_update("Patch.Quest-RUNE"));
+        assert!(!is_update("Silent.Hill.2.Remake-RUNE"));
+        assert_eq!(split_name("CONTROL.Resonant.Update.v1.4.2-RUNE").0, "CONTROL Resonant");
+        assert_eq!(split_name("Spil.Hotfix.3-RUNE").0, "Spil");
+        assert_eq!(split_name("Patch.Quest-RUNE").0, "Patch Quest");
+    }
+
+    #[test]
+    fn finds_game_folder() {
+        let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let one = n(&["Control Resonant (2026) - RUNE", "Control (2019) - CODEX"]);
+        // Store bogstaver og gruppe er ligegyldige, og titlen skal passe helt
+        assert_eq!(find_game(&one, "CONTROL Resonant", Some("TENOKE")).unwrap().as_deref(), Some("Control Resonant (2026) - RUNE"));
+        assert_eq!(find_game(&one, "Control", Some("RUNE")).unwrap().as_deref(), Some("Control (2019) - CODEX"));
+        assert_eq!(find_game(&one, "Control Ultimate", None).unwrap(), None);
+        // Flere udgaver: samme gruppe vinder, ellers en fejl frem for et gæt
+        let two = n(&["Spil (2020) - RUNE", "Spil (2020) - GOG"]);
+        assert_eq!(find_game(&two, "Spil", Some("GOG")).unwrap().as_deref(), Some("Spil (2020) - GOG"));
+        assert!(find_game(&two, "Spil", Some("CODEX")).is_err());
     }
 
     #[test]

@@ -117,10 +117,14 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
         let r = rel(games, &d);
         seen.insert(r.clone());
         let name = d.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let mtime = std::fs::metadata(&d)
-            .and_then(|m| m.modified())
-            .map(|m| m.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64())
-            .unwrap_or(0.0);
+        // En ny update ændrer kun updates/, ikke selve spilmappen
+        let mtime_of = |p: &Path| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .map(|m| m.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64())
+                .unwrap_or(0.0)
+        };
+        let mtime = mtime_of(&d).max(mtime_of(&d.join("updates")));
         let old = db::find(&app.db.lock().unwrap(), &r);
         if let Some((id, omt)) = old {
             if (omt - mtime).abs() < 0.001 && !force {
