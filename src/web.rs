@@ -356,6 +356,8 @@ pub struct ApiGame {
     pub kind: String,
     pub label: String,
     pub size: i64,
+    /// Unix-tid, hvor spillet kom i biblioteket
+    pub added: f64,
     pub isos: Vec<String>,
     pub poster: String,
     pub poster_wide: bool,
@@ -378,6 +380,7 @@ async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
             kind: g.kind.clone(),
             label: label(&g.kind),
             size: g.size,
+            added: g.added,
             isos: g.isos.clone(),
             poster: img_url(&app, g, "poster"),
             poster_wide: m.poster_wide,

@@ -150,16 +150,21 @@ const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="
 const KAN = { ja: ['✓', 'Opfylder anbefalet'], min: ['~', 'Opfylder minimum'], nej: ['✕', 'Kan næppe spilles'], ukendt: ['?', 'Kan ikke vurderes'] };
 const kanIcon = (k, why) => `<span class="kan ${k}" title="${esc(why || KAN[k][1])}">${KAN[k][0]}</span>`;
 
+// Nyt: kommet i biblioteket den sidste uge
+const nyt = g => g.added && Date.now() / 1000 - g.added < 7 * 86400;
+
 // Kun de typer, biblioteket faktisk har
 function tabs() {
   const kinds = [...new Map(games.map(g => [g.kind, g.label])).entries()];
+  if (games.some(nyt)) kinds.unshift(['nyt', 'Nyt']);
   if (kind && !kinds.some(([k]) => k === kind)) kind = '';
   $('#kinds').innerHTML = kinds.length < 2 ? '' : [['', 'Alle'], ...kinds].map(([k, l]) => `<button data-k="${esc(k)}" class="${k === kind ? 'on' : ''}">${esc(l)}</button>`).join('');
 }
 
 function render() {
   const t = $('#q').value.trim().toLowerCase();
-  const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || g.kind === kind));
+  const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || (kind === 'nyt' ? nyt(g) : g.kind === kind)));
+  if (kind === 'nyt') list.sort((a, b) => b.added - a.added);
   $('#grid').innerHTML = list.map(g => `<button class="card" data-id="${g.id}">${poster(g)}<b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></button>`).join('');
 }
 
