@@ -202,7 +202,6 @@ pub async fn run(cfg: Cfg) {
 
     let app = Router::new()
         .route("/", get(page))
-        .route("/static/style.css", get(css))
         .route("/api/spil", get(games))
         .route("/api/specs", get(get_specs).post(set_specs))
         .route("/img/{appid}/{kind}", get(img))
@@ -510,10 +509,6 @@ pub fn verify_zip_bytes(b: &[u8]) -> Result<(), String> {
 /// Må ikke gemmes af kiosken, så en opdatering viser den nye side med det samme.
 async fn page() -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")], Html(include_str!("../templates/klient.html")))
-}
-
-async fn css() -> Response {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], include_str!("../static/style.css")).into_response()
 }
 
 /// Biblioteket fra serveren; uden forbindelse vises den sidst hentede udgave.

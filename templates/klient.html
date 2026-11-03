@@ -4,100 +4,128 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SpilarrOS</title>
-  <link rel="stylesheet" href="/static/style.css">
   <style>
-    html, body { height: 100%; overflow: hidden; user-select: none; }
-    body { display: flex; flex-direction: column; }
-    main { flex: 1; overflow-y: auto; padding-bottom: 20px; }
-    .top .right { margin-left: auto; display: flex; gap: 8px; }
-    .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-    .pwrap { box-shadow: none; transition: none; }
-    .card { cursor: pointer; }
-    .kan { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 15px; }
-    .pwrap .kan { position: absolute; left: 6px; bottom: 6px; box-shadow: 0 0 0 2px rgba(0,0,0,.55); }
-    .kan.ja { background: #2f9e62; }
-    .kan.min { background: #c98a1b; }
-    .kan.nej { background: #c0453a; }
-    .kan.ukendt { background: #6b7280; }
-    .kanrow { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-    .specs { flex-direction: column; width: min(520px, 94vw); gap: 12px; }
-    .specs label { display: flex; flex-direction: column; gap: 4px; }
-    .specs select { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 16px; }
-    .specs .kanrow { margin: 0; }
-    .wifi { width: min(760px, 94vw); }
-    .wifi .net { display: flex; justify-content: space-between; gap: 12px; text-align: left; width: 100%; }
-    .wifi .nets { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 55vh; }
-    .wifi input { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 18px; flex: 1; min-width: 0; }
+    :root { --bg: #111214; --panel: #1b1c1f; --raise: #25262a; --line: #2c2d31; --text: #ececee; --muted: #8b8d93;
+      --accent: #ffc230; --ok: #3fa66b; --warn: #c98a1b; --err: #d0564a; --r: 10px; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; user-select: none; }
+    body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+    button, input, select { font: inherit; color: inherit; }
+    button { background: none; border: 0; cursor: pointer; }
+    button:disabled { opacity: .4; cursor: default; }
+    .muted { color: var(--muted); }
+
+    .btn { background: var(--raise); border-radius: 8px; padding: 9px 16px; white-space: nowrap; }
+    .btn:hover:not(:disabled) { background: #303136; }
+    .btn.primary { background: var(--accent); color: #111; font-weight: 600; }
+    .icon { width: 40px; height: 40px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; position: relative; flex: none; }
+    .icon:hover:not(:disabled) { background: var(--raise); }
+    .icon.dot::after { content: ""; position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    input, select { background: var(--raise); border: 1px solid transparent; border-radius: 8px; padding: 9px 12px; outline: none; }
+    input:focus, select:focus { border-color: var(--line); }
+
+    header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; }
+    .logo { font-weight: 700; font-size: 17px; }
+    #q { width: 260px; }
+    .tabs { display: flex; gap: 2px; }
+    .tabs button { padding: 7px 12px; border-radius: 8px; color: var(--muted); }
+    .tabs button.on { background: var(--raise); color: var(--text); }
+    header .end { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+    #dl { display: inline-flex; align-items: center; gap: 8px; }
+    #dl[hidden] { display: none; }
+
+    .alert { margin: 0 24px 8px; padding: 10px 14px; border-radius: 8px; background: #3a1f1c; color: #f1b3aa; }
+    .alert:empty { display: none; }
+    main { flex: 1; overflow-y: auto; padding: 8px 24px 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; }
+    .card { text-align: left; padding: 0; min-width: 0; }
+    .poster { position: relative; aspect-ratio: 2 / 3; border-radius: var(--r); overflow: hidden; background: var(--panel); }
+    .card:hover .poster { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .poster .ph { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); font-weight: 600; }
+    .card b { display: block; margin-top: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card small { color: var(--muted); }
+    .kan { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 14px; flex: none; }
+    .poster .kan { position: absolute; left: 8px; bottom: 8px; }
+    .kan.ja { background: var(--ok); } .kan.min { background: var(--warn); } .kan.nej { background: var(--err); } .kan.ukendt { background: #5b5d63; }
+
+    /* Downloads */
+    #jobs { display: none; max-height: 45vh; overflow-y: auto; background: var(--panel); border-top: 1px solid var(--line); padding: 4px 24px 8px; }
+    #jobs.on { display: block; }
+    .job { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
+    .job + .job { border-top: 1px solid var(--line); }
+    .job .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .job .row { display: flex; justify-content: space-between; gap: 12px; }
+    .job b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job small { color: var(--muted); white-space: nowrap; }
+    .job .err { color: #f1b3aa; white-space: normal; }
+    .job .acts { display: flex; }
+    .prog { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+    .prog i { display: block; height: 100%; background: var(--accent); }
+    .prog.ok i { background: var(--ok); } .prog.err i { background: var(--err); }
+
+    /* Menu og dialoger */
+    #menu { position: fixed; top: 60px; right: 24px; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+      padding: 6px; min-width: 220px; display: none; flex-direction: column; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+    #menu.on { display: flex; }
+    #menu button { text-align: left; padding: 10px 12px; border-radius: 6px; }
+    #menu button:hover { background: var(--raise); }
+    #menu .new { color: var(--accent); }
+    #ov { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 20; }
+    #ov.on { display: flex; }
+    .box { position: relative; background: var(--panel); border-radius: 14px; padding: 28px; width: min(480px, 94vw); max-height: 90vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px; }
+    .box h1 { margin: 0; font-size: 22px; font-weight: 600; padding-right: 40px; }
+    .box > .icon.x { position: absolute; top: 14px; right: 14px; }
+    .box .row { display: flex; gap: 10px; }
+    .box.game { width: min(820px, 94vw); flex-direction: row; gap: 28px; }
+    .box.game .poster { width: 220px; flex: none; align-self: flex-start; background: var(--raise); }
+    .box.game .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .box.game p { margin: 0; color: #c5c7cc; }
+    .box.game .acts { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: auto; padding-top: 8px; }
+    .kanrow { display: flex; align-items: center; gap: 10px; }
+    .nets { display: flex; flex-direction: column; overflow-y: auto; max-height: 55vh; margin: 0 -10px; }
+    .nets button { display: flex; justify-content: space-between; gap: 12px; padding: 12px 10px; border-radius: 8px; text-align: left; }
+    .nets button:hover:not(:disabled) { background: var(--raise); }
+    .box.kode { width: min(760px, 94vw); }
+    .kode input { flex: 1; min-width: 0; font-size: 18px; }
     .kb { display: flex; flex-direction: column; gap: 5px; }
     .kb div { display: flex; gap: 5px; justify-content: center; }
-    .kb button { flex: 1; min-width: 0; padding: 11px 0; font-size: 17px; background: #2a2e35; color: inherit; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+    .kb button { flex: 1; min-width: 0; padding: 12px 0; font-size: 17px; background: var(--raise); border-radius: 6px; }
     .kb button.on { background: var(--accent); color: #111; }
-    /* spillets boks */
-    #ov { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 20; }
-    #ov.on { display: flex; }
-    .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; display: flex; gap: 24px;
-      width: min(900px, 94vw); max-height: 90vh; overflow-y: auto; }
-    .box .pwrap { width: 200px; flex: none; }
-    .box h1 { margin: 0 0 6px; font-size: 26px; }
-    .box .x { margin-left: auto; }
-    .dlbtns { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; margin-top: 18px; }
-    .dlbtns select { background: #15171b; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 15px; margin-left: 6px; }
-    /* bundlinje og kø */
-    .bar { background: #15171b; border-top: 1px solid var(--line); padding: 8px 20px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; font-size: 14px; }
-    .bar .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #c0563f; }
-    .bar .dot.ok { background: #3fa66b; }
-    .bar .q { margin-left: auto; }
-    #jobs { display: none; max-height: 42vh; overflow-y: auto; background: #15171b; border-top: 1px solid var(--line); padding: 4px 20px 12px; }
-    #jobs.on { display: block; }
-    .job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-    .job b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .job .acts { grid-row: span 3; display: flex; gap: 6px; align-items: center; }
-    .prog { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
-    .prog i { display: block; height: 100%; background: var(--accent); }
-    .prog.ok i { background: #3fa66b; }
-    .prog.err i { background: #c0563f; }
-    #toast { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); background: var(--accent); color: #111; font-weight: 600;
+    #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: #111; font-weight: 500;
       padding: 10px 18px; border-radius: 8px; display: none; z-index: 30; }
   </style>
 </head>
 <body>
-  <header class="top">
-    <span class="logo">🎮 SpilarrOS</span>
-    <input id="q" type="search" placeholder="Søg…" autocomplete="off">
-    <div class="chips" id="kinds">
-      <button class="chip on" data-k="">Alle</button>
-      <button class="chip" data-k="iso">ISO</button>
-      <button class="chip" data-k="setup">Installer</button>
-      <button class="chip" data-k="portable">Portable</button>
-      <button class="chip" data-k="software">Software</button>
-    </div>
-    <div class="right">
-      <button class="btn primary" id="opdater" style="display:none">⬆ Ny version</button>
-      <button class="btn" id="wifi" style="display:none">📶 Wifi</button>
-      <button class="btn" id="specs">💻 Min PC</button>
-      <button class="btn" id="eject">⏏ Skub disk ud</button>
-      <button class="btn" id="off">⏻ Sluk</button>
+  <header>
+    <span class="logo">SpilarrOS</span>
+    <input id="q" type="search" placeholder="Søg" autocomplete="off">
+    <nav class="tabs" id="kinds"></nav>
+    <div class="end">
+      <button class="btn" id="dl" hidden></button>
+      <button class="icon" id="more" title="Menu">⋯</button>
     </div>
   </header>
-  <main>
-    <p class="muted count"><span id="n">…</span> spil</p>
-    <div class="grid" id="grid"></div>
-  </main>
+  <div class="alert" id="alert"></div>
+  <main><div class="grid" id="grid"></div></main>
   <div id="jobs"></div>
-  <footer class="bar">
-    <span><span class="dot" id="sdot"></span><span id="stxt">Forbinder…</span></span>
-    <span><span class="dot" id="ndot"></span><span id="ntxt">Net…</span></span>
-    <span><span class="dot" id="ddot"></span><span id="dtxt">Disk…</span></span>
-    <button class="btn small q" id="qbtn">Downloads</button>
-  </footer>
+  <div id="menu">
+    <button class="new" data-m="opdater" hidden>Opdater SpilarrOS</button>
+    <button data-m="wifi" hidden>Wifi</button>
+    <button data-m="specs">Min PC</button>
+    <button data-m="eject">Skub disk ud</button>
+    <button data-m="off">Sluk</button>
+  </div>
   <div id="ov"><div class="box" id="box"></div></div>
   <div id="toast"></div>
 <script>
 const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const gb = b => (b / 1e9).toFixed(1) + ' GB';
 const dur = s => s < 60 ? Math.round(s) + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' t ' + Math.round(s % 3600 / 60) + ' min';
-let games = [], kind = '', last = null;
+let games = [], kind = '', last = null, ny = false;
 
 function toast(t) { const e = $('#toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(e.t); e.t = setTimeout(() => e.style.display = 'none', 4000); }
 
@@ -108,30 +136,30 @@ async function post(url, body) {
   return t;
 }
 
-function poster(g) {
-  return g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`;
-}
+const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`}${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>`;
 
 const KAN = { ja: ['✓', 'Opfylder anbefalet'], min: ['~', 'Opfylder minimum'], nej: ['✕', 'Kan næppe spilles'], ukendt: ['?', 'Kan ikke vurderes'] };
 const kanIcon = (k, why) => `<span class="kan ${k}" title="${esc(why || KAN[k][1])}">${KAN[k][0]}</span>`;
 
+// Kun de typer, biblioteket faktisk har
+function tabs() {
+  const kinds = [...new Map(games.map(g => [g.kind, g.label])).entries()];
+  if (kind && !kinds.some(([k]) => k === kind)) kind = '';
+  $('#kinds').innerHTML = kinds.length < 2 ? '' : [['', 'Alle'], ...kinds].map(([k, l]) => `<button data-k="${esc(k)}" class="${k === kind ? 'on' : ''}">${esc(l)}</button>`).join('');
+}
+
 function render() {
   const t = $('#q').value.trim().toLowerCase();
   const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || g.kind === kind));
-  $('#n').textContent = list.length;
-  $('#grid').innerHTML = list.map(g => `<div class="card" data-id="${g.id}"><div class="pwrap">${poster(g)}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span>${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>
-    <div class="cap"><b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></div></div>`).join('');
+  $('#grid').innerHTML = list.map(g => `<button class="card" data-id="${g.id}">${poster(g)}<b>${esc(g.title)}</b><small>${gb(g.size)}</small></button>`).join('');
 }
 
-// Listen kan være gemt, før serveren sendte systemkrav
-const reqs = (t, l) => l && l.length ? `<p class="muted small"><b>${t}:</b> ${l.map(esc).join(' · ')}</p>` : '';
-
-// Starttid: næste gang klokken bliver det valgte, hver halve time
+// Starttid: næste gang klokken bliver det valgte, hver halve time. Huskes, så flere spil kan sættes i kø til samme tid.
 let valgtStart = '';
 const pad = n => String(n).padStart(2, '0');
-const startOpts = () => '<option value="">Nu</option>' + Array.from({ length: 48 }, (_, i) => {
+const startOpts = () => '<option value="">Start nu</option>' + Array.from({ length: 48 }, (_, i) => {
   const t = `${pad(i >> 1)}:${i & 1 ? '30' : '00'}`;
-  return `<option value="${t}">kl. ${t}</option>`;
+  return `<option value="${t}">Start kl. ${t}</option>`;
 }).join('');
 function startTime(v) {
   if (!v) return 0;
@@ -142,80 +170,69 @@ function startTime(v) {
 }
 const startTxt = s => new Date(s * 1000).toLocaleString('da-DK', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
+function showBox(cls, html) {
+  $('#box').className = 'box ' + cls;
+  $('#box').innerHTML = '<button class="icon x" id="close" title="Luk">✕</button>' + html;
+  $('#close').onclick = closeBox;
+  $('#ov').classList.add('on');
+}
+function closeBox() { $('#ov').classList.remove('on'); $('#box').className = 'box'; }
+
 function open(id) {
   const g = games.find(x => x.id == id); if (!g) return;
   const name = f => f.split('/').pop();
-  const btns = g.isos.map(f => `<button class="btn primary" data-f="${esc(f)}">⤓ Hent ${g.isos.length > 1 ? esc(name(f)) : 'ISO'}</button>`).join('')
-    + `<button class="btn${g.isos.length ? '' : ' primary'}" data-f="">⤓ Hent hele mappen som zip (${gb(g.size)})</button>`;
-  $('#box').innerHTML = `<div class="pwrap">${poster(g)}</div><div style="flex:1;min-width:0">
-    <div style="display:flex"><h1>${esc(g.title)} <span class="muted">(${g.year || '?'})</span></h1><button class="btn x" id="close">✕</button></div>
-    <p class="sub"><span class="badge ${esc(g.kind)} inline">${esc(g.label)}</span>${g.grp ? `<span>${esc(g.grp)}</span>` : ''}<span>${gb(g.size)}</span></p>
-    <p class="genres">${g.genres.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</p>
-    <p class="short">${esc(g.short)}</p>
-    ${g.kan ? `<div class="kanrow">${kanIcon(g.kan, g.kan_why)}<span><b>${KAN[g.kan][1]}</b> <span class="muted small">${esc(g.kan_why)}</span></span></div>` : ''}
-    ${reqs('Minimum', g.req_min)}${reqs('Anbefalet', g.req_rec)}
-    <div class="dlbtns"><label class="small">Start <select id="start">${startOpts()}</select></label>${btns}<span class="muted small">ISO'en fortsætter, hvor den slap, hvis forbindelsen ryger. Zip'en starter forfra.</span></div></div>`;
-  $('#ov').classList.add('on');
-  $('#close').onclick = () => $('#ov').classList.remove('on');
-  // Husk valget, så flere spil nemt kan sættes i kø til samme tidspunkt
+  const btns = g.isos.map(f => `<button class="btn primary" data-f="${esc(f)}">Hent ${g.isos.length > 1 ? esc(name(f)) : 'ISO'}</button>`).join('')
+    + `<button class="btn${g.isos.length ? '' : ' primary'}" data-f="">Hent mappen · ${gb(g.size)}</button>`;
+  showBox('game', `${poster(g)}<div class="side">
+    <h1>${esc(g.title)}${g.year ? ` <span class="muted">${g.year}</span>` : ''}</h1>
+    ${g.short ? `<p>${esc(g.short)}</p>` : ''}
+    ${g.kan ? `<div class="kanrow" title="${esc(g.kan_why)}">${kanIcon(g.kan, g.kan_why)}${KAN[g.kan][1]}</div>` : ''}
+    <div class="acts"><select id="start">${startOpts()}</select>${btns}</div></div>`);
   $('#start').value = valgtStart;
   $('#start').onchange = e => valgtStart = e.target.value;
-  document.querySelectorAll('.dlbtns button').forEach(b => b.onclick = async () => {
+  $$('.acts button').forEach(b => b.onclick = async () => {
     b.disabled = true;
     const start = startTime($('#start').value);
-    try { await post('/api/hent', { id: g.id, f: b.dataset.f || null, start }); toast((start ? `Starter ${startTxt(start)}: ` : 'Lagt i kø: ') + b.textContent.replace('⤓ ', '')); $('#ov').classList.remove('on'); $('#jobs').classList.add('on'); poll(); }
+    try { await post('/api/hent', { id: g.id, f: b.dataset.f || null, start }); toast(start ? `Starter ${startTxt(start)}` : 'Lagt i kø'); closeBox(); $('#jobs').classList.add('on'); poll(); }
     catch (e) { toast(e.message); b.disabled = false; }
   });
 }
 
 async function openSpecs() {
   const s = await (await fetch('/api/specs')).json();
-  const opts = (l, v) => '<option value="">Vælg…</option>' + l.map(x => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  const opts = (ph, l, v) => `<option value="">${ph}</option>` + l.map(x => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
   const rams = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128];
-  $('#box').className = 'box specs';
-  $('#box').innerHTML = `<div style="display:flex"><h1>Min PC</h1><button class="btn x" id="close">✕</button></div>
-    <label>Processor<select id="cpu">${opts(s.cpus, s.pc.cpu)}</select></label>
-    <label>Grafikkort<select id="gpu">${opts(s.gpus, s.pc.gpu)}</select></label>
-    <label>RAM (GB)<select id="ram"><option value="0">Vælg…</option>${rams.map(r => `<option value="${r}"${r === s.pc.ram ? ' selected' : ''}>${r} GB</option>`).join('')}</select></label>
-    <button class="btn primary" id="save">Gem</button>
-    ${Object.keys(KAN).map(k => `<div class="kanrow">${kanIcon(k)}<span class="small">${KAN[k][1]}</span></div>`).join('')}
-    <p class="muted small">Vurderingen er vejledende: den sammenligner omtrentlige ydelsestal med Steams krav. Står din model ikke på listen, så vælg den nærmeste.</p>`;
-  $('#ov').classList.add('on');
-  $('#close').onclick = closeBox;
+  showBox('', `<h1>Min PC</h1>
+    <select id="cpu">${opts('Processor', s.cpus, s.pc.cpu)}</select>
+    <select id="gpu">${opts('Grafikkort', s.gpus, s.pc.gpu)}</select>
+    <select id="ram"><option value="0">RAM</option>${rams.map(r => `<option value="${r}"${r === s.pc.ram ? ' selected' : ''}>${r} GB RAM</option>`).join('')}</select>
+    <div class="row"><button class="btn primary" id="save">Gem</button></div>`);
   $('#save').onclick = async () => {
     try { await post('/api/specs', { cpu: $('#cpu').value, gpu: $('#gpu').value, ram: +$('#ram').value }); closeBox(); toast('Gemt'); load(); }
     catch (e) { toast(e.message); }
   };
 }
 
-function closeBox() { $('#ov').classList.remove('on'); $('#box').className = 'box'; }
-
 // ---------- Wifi ----------
-function wifiBox(html) {
-  $('#box').className = 'box specs wifi';
-  $('#box').innerHTML = `<div style="display:flex"><h1>Wifi</h1><button class="btn x" id="close">✕</button></div>` + html;
-  $('#ov').classList.add('on');
-  $('#close').onclick = closeBox;
-}
+const wifiBox = html => showBox('wifi', '<h1>Wifi</h1>' + html);
 
 function askWifi() {
-  wifiBox(`<p>Der er ikke noget kabel i. Vil du forbinde til wifi?</p>
-    <div style="display:flex;gap:10px"><button class="btn primary" id="ja">Ja</button><button class="btn" id="nej">Nej</button></div>`);
+  wifiBox(`<p>Intet kabel. Forbind til wifi?</p>
+    <div class="row"><button class="btn primary" id="ja">Ja</button><button class="btn" id="nej">Nej</button></div>`);
   $('#ja').onclick = openWifi;
   $('#nej').onclick = closeBox;
 }
 
 async function openWifi() {
-  wifiBox('<p class="muted">Søger efter netværk…</p>');
+  wifiBox('<p class="muted">Søger…</p>');
   let s;
   try { const r = await fetch('/api/wifi'); if (!r.ok) throw new Error(await r.text()); s = await r.json(); }
   catch (e) { if ($('#ov').classList.contains('on')) wifiBox(`<p>${esc(e.message)}</p>`); return; }
   if (!$('#box').classList.contains('wifi')) return; // lukket imens
-  wifiBox((s.net.kabel ? '<p class="muted">Kablet er forbundet, så wifi er koblet fra. Tag kablet ud for at bruge wifi.</p>' : '')
-    + (s.list.length ? `<div class="nets">${s.list.map((n, i) => `<button class="btn net" data-i="${i}"${s.net.kabel ? ' disabled' : ''}><span>${n.kode ? '🔒 ' : ''}${esc(n.ssid)}${n.aktiv ? ' ✔' : ''}</span><span class="muted">${n.signal} %</span></button>`).join('')}</div>` : '<p class="muted">Ingen netværk fundet.</p>')
-    + '<button class="btn" id="igen">Søg igen</button>');
+  wifiBox((s.list.length ? `<div class="nets">${s.list.map((n, i) => `<button data-i="${i}"><span>${n.kode ? '🔒 ' : ''}${esc(n.ssid)}${n.aktiv ? ' ✓' : ''}</span><span class="muted">${n.signal} %</span></button>`).join('')}</div>` : '<p class="muted">Ingen net fundet</p>')
+    + '<div class="row"><button class="btn" id="igen">Søg igen</button></div>');
   $('#igen').onclick = openWifi;
-  document.querySelectorAll('.net').forEach(b => b.onclick = () => {
+  $$('.nets button').forEach(b => b.onclick = () => {
     const n = s.list[b.dataset.i];
     if (n.gemt || !n.kode) connectWifi(n, ''); else askCode(n);
   });
@@ -231,16 +248,16 @@ async function connectWifi(n, pw) {
 const KB = [['1234567890', 'qwertyuiopå', 'asdfghjklæø', 'zxcvbnm'], ['!@#$%^&*()', '-_=+[]{}\\|', ';:\'",.<>/?', '`~€£§']];
 function askCode(n) {
   let sym = 0, shift = false, pw = '';
-  wifiBox(`<p>Kode til <b>${esc(n.ssid)}</b></p>
-    <div style="display:flex;gap:8px"><input id="pw" type="password" autocomplete="off"><button class="btn" id="vis">👁</button></div>
+  showBox('wifi kode', `<h1>${esc(n.ssid)}</h1>
+    <div class="row"><input id="pw" type="password" placeholder="Kode" autocomplete="off"><button class="icon" id="vis" title="Vis kode">👁</button></div>
     <div class="kb" id="kb"></div>
-    <div style="display:flex;gap:10px"><button class="btn primary" id="ok">Forbind</button><button class="btn" id="tilbage">Tilbage</button></div>`);
+    <div class="row"><button class="btn primary" id="ok">Forbind</button><button class="btn" id="tilbage">Tilbage</button></div>`);
   const inp = $('#pw');
   inp.oninput = () => pw = inp.value;
   const keys = () => {
     const c = k => shift ? k.toUpperCase() : k;
     $('#kb').innerHTML = KB[sym].map(r => `<div>${[...r].map(k => `<button data-k="${esc(c(k))}">${esc(c(k))}</button>`).join('')}</div>`).join('')
-      + `<div><button data-a="shift" class="${shift ? 'on' : ''}">⇧</button><button data-a="sym" class="${sym ? 'on' : ''}">!#1</button><button data-k=" " style="flex:4">Mellemrum</button><button data-a="slet">⌫</button></div>`;
+      + `<div><button data-a="shift" class="${shift ? 'on' : ''}">⇧</button><button data-a="sym" class="${sym ? 'on' : ''}">!#1</button><button data-k=" " style="flex:4">␣</button><button data-a="slet">⌫</button></div>`;
   };
   keys();
   $('#kb').onclick = e => {
@@ -252,88 +269,108 @@ function askCode(n) {
   };
   $('#vis').onclick = () => inp.type = inp.type === 'password' ? 'text' : 'password';
   $('#tilbage').onclick = openWifi;
-  $('#ok').onclick = () => { if (pw) connectWifi(n, pw); else toast('Skriv koden'); };
+  $('#ok').onclick = () => { if (pw) connectWifi(n, pw); else inp.focus(); };
 }
 
 // Spørg én gang, når der ikke er net. Wifi får lidt tid til selv at koble på et gemt net, når kablet tages ud.
 let udenNet = 0, spurgt = false;
-function netStatus(n) {
-  $('#wifi').style.display = n.wifi_kort ? '' : 'none';
-  $('#ndot').className = 'dot' + (n.kabel || n.wifi ? ' ok' : '');
-  $('#ntxt').textContent = (n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net') + (n.driver_mangler ? ' – wifi-driveren mangler (ny kerne?)' : '');
+function netCheck(n) {
   if (n.kabel || n.wifi) { udenNet = 0; spurgt = false; return; }
   if (n.wifi_kort && !spurgt && ++udenNet >= 8 && !$('#ov').classList.contains('on')) { spurgt = true; askWifi(); }
 }
 
+// Kun det, der er galt, vises
+function problems(s) {
+  const n = s.net, d = s.disk, p = [];
+  if (!n.kabel && !n.wifi) p.push('Intet net');
+  else if (!s.server_ok) p.push(s.server_msg || 'Ingen forbindelse hjem');
+  if (n.driver_mangler) p.push('Wifi-driveren mangler');
+  if (!d.ok) p.push(d.msg || 'Ingen disk');
+  else if (d.fs === 'vfat') p.push('Disken er FAT32 og kan ikke rumme filer over 4 GB');
+  return p.join(' · ');
+}
+
 function jobHtml(j) {
   const pct = j.size ? Math.min(100, j.done / j.size * 100) : 0;
-  let st = { venter: 'Venter', henter: 'Henter', faerdig: 'Færdig ✔', fejl: 'Fejl', tjekker: 'Tjekker filen' }[j.state];
-  if (j.state === 'henter') st += ` · ${gb(j.done)} af ${gb(j.size)} · ${(j.speed / 1e6).toFixed(1)} MB/s` + (j.eta ? ` · ${dur(j.eta)} tilbage` : '');
-  else if (j.state !== 'faerdig' && j.state !== 'tjekker') st += ` · ${gb(j.done)} af ${gb(j.size)}`;
-  const senere = j.state === 'venter' && j.start * 1000 > Date.now();
-  if (senere) st = `Starter ${startTxt(j.start)} · ${gb(j.size)}`;
-  if (j.pause) st = `På pause · ${gb(j.done)} af ${gb(j.size)}`;
+  const af = `${gb(j.done)} af ${gb(j.size)}`;
+  const senere = j.state === 'venter' && !j.pause && j.start * 1000 > Date.now();
+  const st = j.pause ? `Pause · ${af}`
+    : senere ? `${startTxt(j.start)} · ${gb(j.size)}`
+    : j.state === 'henter' ? [af, `${(j.speed / 1e6).toFixed(1)} MB/s`, j.eta && dur(j.eta)].filter(Boolean).join(' · ')
+    : { venter: `Venter · ${af}`, tjekker: 'Tjekker', faerdig: gb(j.size), fejl: af }[j.state];
   const aktiv = j.state === 'henter' || j.state === 'tjekker', ufaerdig = j.state !== 'faerdig';
+  const a = (k, t, title) => `<button class="icon" data-a="${k}" data-n="${j.n}" title="${title}">${t}</button>`;
+  const acts = (j.state === 'fejl' ? a('igen', '↻', 'Prøv igen') : '')
+    + (senere ? a('nu', '▶', 'Start nu') : ufaerdig ? (j.pause ? a('pause', '▶', 'Fortsæt') : a('pause', '⏸', 'Pause')) : '')
+    + (ufaerdig && !aktiv ? a('op', '▲', 'Op') + a('ned', '▼', 'Ned') : '')
+    + a('fjern', '✕', ufaerdig ? 'Fjern' : 'Skjul');
   const cls = j.state === 'faerdig' ? 'ok' : j.state === 'fejl' ? 'err' : '';
-  const acts = (j.state === 'fejl' ? `<button class="btn small" data-a="igen" data-n="${j.n}">Prøv igen</button>` : '')
-    + (senere ? `<button class="btn small" data-a="nu" data-n="${j.n}">Start nu</button>` : '')
-    + (ufaerdig ? `<button class="btn small" data-a="pause" data-n="${j.n}">${j.pause ? '▶' : '⏸'}</button>` : '')
-    + (ufaerdig && !aktiv ? `<button class="btn small" data-a="op" data-n="${j.n}">▲</button><button class="btn small" data-a="ned" data-n="${j.n}">▼</button>` : '')
-    + `<button class="btn small" data-a="fjern" data-n="${j.n}">${j.state === 'faerdig' ? 'Skjul' : 'Fjern'}</button>`;
-  return `<div class="job"><b>${esc(j.title)} – ${esc(j.file)}</b><div class="acts">${acts}</div>
-    <div class="prog ${cls}"><i style="width:${pct}%"></i></div><small class="muted">${st}${j.msg ? ' · ' + esc(j.msg) : ''}</small></div>`;
+  return `<div class="job"><div class="info"><div class="row"><b>${esc(j.title)}</b><small>${st}</small></div>
+    <div class="prog ${cls}"><i style="width:${pct}%"></i></div>${j.msg ? `<small class="${j.state === 'fejl' ? 'err' : ''}">${esc(j.msg)}</small>` : ''}</div>
+    <div class="acts">${acts}</div></div>`;
 }
 
 async function poll() {
   try {
     const s = await (await fetch('/api/status')).json(); last = s;
-    $('#sdot').className = 'dot' + (s.server_ok ? ' ok' : '');
-    $('#stxt').textContent = s.server_ok ? 'Forbundet hjem' : (s.server_msg || 'Forbinder…');
-    netStatus(s.net);
-    const d = s.disk;
-    $('#ddot').className = 'dot' + (d.ok && d.fs !== 'vfat' ? ' ok' : '');
-    $('#dtxt').textContent = d.ok ? `Disk (${d.fs}): ${gb(d.free)} fri af ${gb(d.total)}${d.msg ? ' – ' + d.msg : ''}` : d.msg;
+    netCheck(s.net);
+    $('#alert').textContent = problems(s);
+    $('[data-m=wifi]').hidden = !s.net.wifi_kort || s.net.kabel;
     const act = s.jobs.filter(j => j.state !== 'faerdig'), cur = s.jobs.find(j => j.state === 'henter');
-    $('#qbtn').textContent = 'Downloads' + (act.length ? ` (${act.length})` : '') + (cur ? ` · ${Math.floor(cur.done / cur.size * 100)} %` : '');
+    $('#dl').hidden = !s.jobs.length;
+    $('#dl').textContent = cur ? `${Math.floor(cur.done / cur.size * 100)} %` + (act.length > 1 ? ` · ${act.length}` : '') : act.length ? `Downloads · ${act.length}` : 'Downloads';
     // Næste i køen øverst, derefter de færdige med de nyeste først
     const done = s.jobs.filter(j => j.state === 'faerdig').reverse();
-    $('#jobs').innerHTML = s.jobs.length ? act.concat(done).map(jobHtml).join('') :'<p class="muted">Ingen downloads endnu. Vælg et spil og tryk Hent.</p>';
-  } catch (e) { $('#stxt').textContent = 'Klienten svarer ikke'; }
+    $('#jobs').innerHTML = act.concat(done).map(jobHtml).join('');
+    if (!s.jobs.length) $('#jobs').classList.remove('on');
+  } catch (e) { $('#alert').textContent = 'Klienten svarer ikke'; }
 }
 
 $('#jobs').onclick = async e => {
   const b = e.target.closest('button[data-a]'); if (!b) return;
-  if (b.dataset.a === 'fjern' && b.textContent === 'Fjern' && !confirm('Stop og slet den ufærdige download?')) return;
+  if (b.dataset.a === 'fjern' && b.title === 'Fjern' && !confirm('Stop og slet den ufærdige download?')) return;
   try { await post(`/api/job/${b.dataset.n}/${b.dataset.a}`); poll(); } catch (err) { toast(err.message); }
 };
-$('#qbtn').onclick = () => $('#jobs').classList.toggle('on');
+$('#dl').onclick = () => $('#jobs').classList.toggle('on');
 $('#grid').onclick = e => { const c = e.target.closest('.card'); if (c) open(c.dataset.id); };
 $('#ov').onclick = e => { if (e.target.id === 'ov') closeBox(); };
-$('#specs').onclick = openSpecs;
-$('#wifi').onclick = openWifi;
-async function checkUpdate() {
-  try { const r = await (await fetch('/api/opdatering')).json(); $('#opdater').style.display = r.ny ? '' : 'none'; } catch (e) {}
-}
-$('#opdater').onclick = async () => {
-  const henter = last && last.jobs.some(j => j.state === 'henter');
-  if (!confirm(henter ? 'Downloaden afbrydes kort og fortsætter bagefter. Opdater?' : 'Opdater SpilarrOS?')) return;
-  try { toast(await post('/api/opdatering')); setTimeout(() => location.reload(), 20000); } catch (e) { toast(e.message); }
-};
-checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
 $('#q').oninput = render;
-document.querySelectorAll('#kinds .chip').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#kinds .chip').forEach(x => x.classList.remove('on')); b.classList.add('on'); kind = b.dataset.k; render(); });
-$('#eject').onclick = async () => { try { toast(await post('/api/udskub')); poll(); } catch (e) { toast(e.message); } };
-$('#off').onclick = async () => {
-  if (last && last.jobs.some(j => j.state === 'henter') && !confirm('Der hentes stadig. Downloaden fortsætter næste gang. Sluk?')) return;
-  if (!confirm('Sluk SpilarrOS?')) return;
-  try { toast(await post('/api/sluk')); } catch (e) { toast(e.message); }
+$('#kinds').onclick = e => { const b = e.target.closest('button'); if (!b) return; kind = b.dataset.k; tabs(); render(); };
+
+$('#more').onclick = e => { e.stopPropagation(); $('#menu').classList.toggle('on'); };
+document.addEventListener('click', () => $('#menu').classList.remove('on'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeBox(); $('#menu').classList.remove('on'); } });
+const MENU = {
+  opdater: async () => {
+    const henter = last && last.jobs.some(j => j.state === 'henter');
+    if (!confirm(henter ? 'Downloaden afbrydes kort og fortsætter bagefter. Opdater?' : 'Opdater SpilarrOS?')) return;
+    toast(await post('/api/opdatering')); setTimeout(() => location.reload(), 20000);
+  },
+  wifi: openWifi,
+  specs: openSpecs,
+  eject: async () => { toast(await post('/api/udskub')); poll(); },
+  off: async () => {
+    if (last && last.jobs.some(j => j.state === 'henter') && !confirm('Der hentes stadig. Downloaden fortsætter næste gang. Sluk?')) return;
+    if (!confirm('Sluk SpilarrOS?')) return;
+    toast(await post('/api/sluk'));
+  },
 };
+$('#menu').onclick = async e => {
+  const b = e.target.closest('button[data-m]'); if (!b) return;
+  try { await MENU[b.dataset.m](); } catch (err) { toast(err.message); }
+};
+
+async function checkUpdate() {
+  try { ny = (await (await fetch('/api/opdatering')).json()).ny; } catch (e) {}
+  $('[data-m=opdater]').hidden = !ny;
+  $('#more').classList.toggle('dot', ny);
+}
+checkUpdate(); setInterval(checkUpdate, 6 * 3600 * 1000);
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 async function load() {
   try { games = await (await fetch('/api/spil')).json(); } catch (e) { games = []; }
-  render();
+  tabs(); render();
   if (!games.length) setTimeout(load, 10000);
 }
 load(); poll(); setInterval(poll, 2000);
