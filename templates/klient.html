@@ -34,8 +34,10 @@
     #dl { display: inline-flex; align-items: center; gap: 8px; }
     #dl[hidden] { display: none; }
 
-    .alert { margin: 0 24px 8px; padding: 10px 14px; border-radius: 8px; background: #3a1f1c; color: #f1b3aa; }
-    .alert:empty { display: none; }
+    footer { display: flex; gap: 24px; padding: 10px 24px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+    footer span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--ok); }
+    footer span.err { color: #f1b3aa; }
+    footer span.err::before { background: var(--err); }
     main { flex: 1; overflow-y: auto; padding: 8px 24px 24px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; }
     .card { text-align: left; padding: 0; min-width: 0; }
@@ -45,6 +47,13 @@
     .poster .ph { height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); font-weight: 600; }
     .card b { display: block; margin-top: 8px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .card small { color: var(--muted); }
+    .badge { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+      color: #fff; padding: 2px 7px; border-radius: 4px; background: #5b5d63; }
+    .badge.iso { background: #2f8a5a; } .badge.rar { background: #a8493a; } .badge.setup { background: #3569b0; }
+    .badge.portable { background: #7550b5; } .badge.software { background: #0e7f7f; }
+    .reqs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 13px; color: #c5c7cc; }
+    .reqs b { display: block; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+    .reqs div div { overflow-wrap: anywhere; }
     .kan { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 14px; flex: none; }
     .poster .kan { position: absolute; left: 8px; bottom: 8px; }
     .kan.ja { background: var(--ok); } .kan.min { background: var(--warn); } .kan.nej { background: var(--err); } .kan.ukendt { background: #5b5d63; }
@@ -107,9 +116,9 @@
       <button class="icon" id="more" title="Menu">⋯</button>
     </div>
   </header>
-  <div class="alert" id="alert"></div>
   <main><div class="grid" id="grid"></div></main>
   <div id="jobs"></div>
+  <footer><span id="shome">Forbinder…</span><span id="snet"></span><span id="sdisk"></span></footer>
   <div id="menu">
     <button class="new" data-m="opdater" hidden>Opdater SpilarrOS</button>
     <button data-m="wifi" hidden>Wifi</button>
@@ -136,7 +145,7 @@ async function post(url, body) {
   return t;
 }
 
-const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`}${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>`;
+const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span>${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>`;
 
 const KAN = { ja: ['✓', 'Opfylder anbefalet'], min: ['~', 'Opfylder minimum'], nej: ['✕', 'Kan næppe spilles'], ukendt: ['?', 'Kan ikke vurderes'] };
 const kanIcon = (k, why) => `<span class="kan ${k}" title="${esc(why || KAN[k][1])}">${KAN[k][0]}</span>`;
@@ -151,7 +160,7 @@ function tabs() {
 function render() {
   const t = $('#q').value.trim().toLowerCase();
   const list = games.filter(g => (!t || (g.title + ' ' + (g.grp || '')).toLowerCase().includes(t)) && (!kind || g.kind === kind));
-  $('#grid').innerHTML = list.map(g => `<button class="card" data-id="${g.id}">${poster(g)}<b>${esc(g.title)}</b><small>${gb(g.size)}</small></button>`).join('');
+  $('#grid').innerHTML = list.map(g => `<button class="card" data-id="${g.id}">${poster(g)}<b>${esc(g.title)}</b><small>${[g.year, gb(g.size)].filter(Boolean).join(' · ')}</small></button>`).join('');
 }
 
 // Starttid: næste gang klokken bliver det valgte, hver halve time. Huskes, så flere spil kan sættes i kø til samme tid.
@@ -178,6 +187,9 @@ function showBox(cls, html) {
 }
 function closeBox() { $('#ov').classList.remove('on'); $('#box').className = 'box'; }
 
+// Listen kan være gemt, før serveren sendte systemkrav
+const reqs = (t, l) => l?.length ? `<div><b>${t}</b>${l.map(x => `<div>${esc(x)}</div>`).join('')}</div>` : '';
+
 function open(id) {
   const g = games.find(x => x.id == id); if (!g) return;
   const name = f => f.split('/').pop();
@@ -187,6 +199,7 @@ function open(id) {
     <h1>${esc(g.title)}${g.year ? ` <span class="muted">${g.year}</span>` : ''}</h1>
     ${g.short ? `<p>${esc(g.short)}</p>` : ''}
     ${g.kan ? `<div class="kanrow" title="${esc(g.kan_why)}">${kanIcon(g.kan, g.kan_why)}${KAN[g.kan][1]}</div>` : ''}
+    ${g.req_min?.length || g.req_rec?.length ? `<div class="reqs">${reqs('Minimum', g.req_min)}${reqs('Anbefalet', g.req_rec)}</div>` : ''}
     <div class="acts"><select id="start">${startOpts()}</select>${btns}</div></div>`);
   $('#start').value = valgtStart;
   $('#start').onchange = e => valgtStart = e.target.value;
@@ -279,15 +292,12 @@ function netCheck(n) {
   if (n.wifi_kort && !spurgt && ++udenNet >= 8 && !$('#ov').classList.contains('on')) { spurgt = true; askWifi(); }
 }
 
-// Kun det, der er galt, vises
-function problems(s) {
-  const n = s.net, d = s.disk, p = [];
-  if (!n.kabel && !n.wifi) p.push('Intet net');
-  else if (!s.server_ok) p.push(s.server_msg || 'Ingen forbindelse hjem');
-  if (n.driver_mangler) p.push('Wifi-driveren mangler');
-  if (!d.ok) p.push(d.msg || 'Ingen disk');
-  else if (d.fs === 'vfat') p.push('Disken er FAT32 og kan ikke rumme filer over 4 GB');
-  return p.join(' · ');
+const stat = (id, ok, txt) => { const e = $(id); e.className = ok ? '' : 'err'; e.textContent = txt; };
+function status(s) {
+  const n = s.net, d = s.disk;
+  stat('#shome', s.server_ok, s.server_ok ? 'Hjem' : s.server_msg || 'Ingen forbindelse hjem');
+  stat('#snet', (n.kabel || n.wifi) && !n.driver_mangler, (n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net') + (n.driver_mangler ? ' · wifi-driveren mangler' : ''));
+  stat('#sdisk', d.ok && d.fs !== 'vfat', !d.ok ? d.msg || 'Ingen disk' : `${gb(d.free)} fri` + (d.fs === 'vfat' ? ' · FAT32, maks 4 GB pr. fil' : ''));
 }
 
 function jobHtml(j) {
@@ -314,7 +324,7 @@ async function poll() {
   try {
     const s = await (await fetch('/api/status')).json(); last = s;
     netCheck(s.net);
-    $('#alert').textContent = problems(s);
+    status(s);
     $('[data-m=wifi]').hidden = !s.net.wifi_kort || s.net.kabel;
     const act = s.jobs.filter(j => j.state !== 'faerdig'), cur = s.jobs.find(j => j.state === 'henter');
     $('#dl').hidden = !s.jobs.length;
@@ -323,7 +333,7 @@ async function poll() {
     const done = s.jobs.filter(j => j.state === 'faerdig').reverse();
     $('#jobs').innerHTML = act.concat(done).map(jobHtml).join('');
     if (!s.jobs.length) $('#jobs').classList.remove('on');
-  } catch (e) { $('#alert').textContent = 'Klienten svarer ikke'; }
+  } catch (e) { stat('#shome', false, 'Klienten svarer ikke'); }
 }
 
 $('#jobs').onclick = async e => {
