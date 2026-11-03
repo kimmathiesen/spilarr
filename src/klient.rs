@@ -601,7 +601,14 @@ struct StatusOut {
     server: String,
     disk: Disk,
     net: Net,
+    /// CPU-temperatur i °C, hvis boksen har en føler
+    temp: Option<f64>,
     jobs: Vec<JobOut>,
+}
+
+fn cpu_temp() -> Option<f64> {
+    let s = std::fs::read_to_string("/sys/class/thermal/thermal_zone0/temp").ok()?;
+    Some(s.trim().parse::<f64>().ok()? / 1000.0)
 }
 
 async fn status(State(k): State<Shared>) -> Json<StatusOut> {
@@ -614,7 +621,7 @@ async fn status(State(k): State<Shared>) -> Json<StatusOut> {
         let eta = (active && speed > 0.0).then(|| (j.size - j.done.min(j.size)) as f64 / speed);
         JobOut { job: j.clone(), speed, eta }
     }).collect();
-    Json(StatusOut { server_ok: l.server_ok, server_msg: l.server_msg.clone(), server: k.cfg.server.clone(), disk, net: net(), jobs })
+    Json(StatusOut { server_ok: l.server_ok, server_msg: l.server_msg.clone(), server: k.cfg.server.clone(), disk, net: net(), temp: cpu_temp(), jobs })
 }
 
 #[derive(Deserialize)]

@@ -118,7 +118,7 @@
   </header>
   <main><div class="grid" id="grid"></div></main>
   <div id="jobs"></div>
-  <footer><span id="shome">Forbinder…</span><span id="snet"></span><span id="sdisk"></span></footer>
+  <footer><span id="shome">Forbinder…</span><span id="snet"></span><span id="sdisk"></span><span id="stemp" hidden></span></footer>
   <div id="menu">
     <button class="new" data-m="opdater" hidden>Opdater SpilarrOS</button>
     <button data-m="wifi" hidden>Wifi</button>
@@ -303,6 +303,8 @@ function status(s) {
   stat('#shome', s.server_ok, s.server_ok ? 'Hjem' : s.server_msg || 'Ingen forbindelse hjem');
   stat('#snet', (n.kabel || n.wifi) && !n.driver_mangler, (n.kabel ? 'Kabel' : n.wifi ? 'Wifi' : 'Intet net') + (n.driver_mangler ? ' · wifi-driveren mangler' : ''));
   stat('#sdisk', d.ok && d.fs !== 'vfat', !d.ok ? d.msg || 'Ingen disk' : `${gb(d.free)} fri` + (d.fs === 'vfat' ? ' · FAT32, maks 4 GB pr. fil' : ''));
+  $('#stemp').hidden = s.temp == null;
+  if (s.temp != null) stat('#stemp', s.temp < 80, `CPU ${Math.round(s.temp)} °C`);
 }
 
 function jobHtml(j) {
