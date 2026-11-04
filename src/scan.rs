@@ -149,6 +149,9 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
     if let Some(sw) = &app.cfg.software {
         scan_software(app, sw, force, t, &mut seen);
     }
+    for (sys, dir) in &app.cfg.roms {
+        scan_roms(app, sys, dir, force, t, &mut seen);
+    }
     // Fjern spil, hvis mappe er væk – men aldrig alt på én gang (fx hvis arrayet er stoppet).
     let todo = {
         let c = app.db.lock().unwrap();
@@ -207,6 +210,86 @@ fn scan_software(app: &App, sw: &Path, force: bool, t: f64, seen: &mut HashSet<S
         isos.sort();
         let s = Scanned {
             kind: "software".into(), title: name, year: None, grp: None, portable: false,
+            isos, rars: vec![], setups: vec![], updates: vec![], size, mtime,
+        };
+        if let Err(e) = db::save_scanned(&app.db.lock().unwrap(), old.map(|o| o.0), &r, &s, t) {
+            eprintln!("kan ikke gemme {r}: {e}");
+        }
+    }
+}
+
+const ROM_EXT: [&str; 7] = ["bin", "cue", "iso", "chd", "pbp", "img", "pkg"];
+
+/// Spillet, en rom-fil hører til: navnet uden endelse og uden " (Track 2)". None = ikke en rom.
+pub fn rom_key(name: &str) -> Option<String> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    if !ROM_EXT.contains(&ext.to_lowercase().as_str()) {
+        return None;
+    }
+    let track = Regex::new(r"(?i) \(track \d+\)$").expect("regex");
+    Some(track.replace(stem, "").to_string())
+}
+
+/// Filerne i `dir`, der hører til spillet `key` (fx en .cue og dens .bin'er).
+pub fn rom_group(dir: &Path, key: &str) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect())
+        .unwrap_or_default();
+    v.retain(|p| rom_key(&p.file_name().unwrap_or_default().to_string_lossy()).as_deref() == Some(key));
+    v.sort();
+    v
+}
+
+/// Ét spil pr. mappe eller pr. gruppe af rom-filer. Én fil kan hentes direkte; flere hentes som zip.
+fn scan_roms(app: &App, sys: &str, dir: &Path, force: bool, t: f64, seen: &mut HashSet<String>) {
+    let mut items: std::collections::BTreeMap<String, Option<Vec<PathBuf>>> = Default::default();
+    for e in std::fs::read_dir(dir).map(|rd| rd.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if e.path().is_dir() {
+            items.entry(name).or_insert(None);
+        } else if let Some(k) = rom_key(&name) {
+            if let Some(files) = items.entry(k).or_insert_with(|| Some(vec![])) {
+                files.push(e.path());
+            }
+        }
+    }
+    let mtime_of = |p: &Path| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .map(|m| m.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64())
+            .unwrap_or(0.0)
+    };
+    for (key, files) in items {
+        let r = format!("{}{sys}/{key}", crate::ROMS);
+        seen.insert(r.clone());
+        let mtime = match &files {
+            Some(f) => f.iter().map(|p| mtime_of(p)).fold(0.0, f64::max),
+            None => mtime_of(&dir.join(&key)),
+        };
+        let old = db::find(&app.db.lock().unwrap(), &r);
+        if let Some((id, omt)) = old {
+            if (omt - mtime).abs() < 0.001 && !force {
+                let _ = db::touch(&app.db.lock().unwrap(), id, t);
+                continue;
+            }
+        }
+        set_msg(app, format!("Scanner {key}"));
+        let (isos, size) = match &files {
+            Some(f) => {
+                let size = f.iter().map(|p| std::fs::metadata(p).map(|m| m.len() as i64).unwrap_or(0)).sum();
+                let isos = if f.len() == 1 { vec![format!("{}{sys}/{}", crate::ROMS, rel(dir, &f[0]))] } else { vec![] };
+                (isos, size)
+            }
+            None => {
+                let walk = WalkDir::new(dir.join(&key)).into_iter().flatten().filter(|e| e.file_type().is_file());
+                (vec![], walk.map(|e| e.metadata().map(|m| m.len() as i64).unwrap_or(0)).sum())
+            }
+        };
+        let s = Scanned {
+            kind: "rom".into(), title: key, year: None, grp: Some(sys.to_string()), portable: false,
             isos, rars: vec![], setups: vec![], updates: vec![], size, mtime,
         };
         if let Err(e) = db::save_scanned(&app.db.lock().unwrap(), old.map(|o| o.0), &r, &s, t) {

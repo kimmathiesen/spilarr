@@ -48,8 +48,10 @@ fn render<T: Template>(t: T) -> Response {
 }
 
 fn label(kind: &str) -> String {
-    if kind == "software" {
-        return "Software".into();
+    match kind {
+        "software" => return "Software".into(),
+        "rom" => return "Roms".into(),
+        _ => {}
     }
     KINDS.iter().find(|k| k.0 == kind).map_or(kind, |k| k.1).to_string()
 }
@@ -92,8 +94,12 @@ struct IndexT {
     kinds: Vec<Opt>,
     sorts: Vec<Opt>,
     msg: String,
+    /// "", "software" eller "roms"
+    fane: String,
+    /// Fanen viser ikke spil (software eller roms)
     software: bool,
     has_software: bool,
+    has_roms: bool,
 }
 
 #[derive(Deserialize)]
@@ -105,16 +111,28 @@ struct SortQ {
 async fn index(State(app): State<Shared>, Query(q): Query<SortQ>) -> Response {
     let sort = q.sort.unwrap_or_else(|| "navn".into());
     let order = SORTS.iter().find(|s| s.0 == sort).unwrap_or(&SORTS[0]).2;
-    let software = q.fane.as_deref() == Some("software");
+    let fane = match q.fane.as_deref() {
+        Some(f @ ("software" | "roms")) => f.to_string(),
+        _ => String::new(),
+    };
+    let fane_kind = |kind: &str| match kind {
+        "software" => "software",
+        "rom" => "roms",
+        _ => "",
+    };
+    let software = !fane.is_empty();
     let games = db::list(&app.db.lock().unwrap(), order).unwrap_or_default();
     let has_software = games.iter().any(|g| g.kind == "software");
+    let has_roms = games.iter().any(|g| g.kind == "rom");
     let cards = games
         .iter()
-        .filter(|g| (g.kind == "software") == software)
+        .filter(|g| fane_kind(&g.kind) == fane)
         .map(|g| Card {
             id: g.id,
             title: g.title.clone(),
-            sub: if g.kind == "software" {
+            sub: if g.kind == "rom" {
+                format!("{} · {:.1} GB", g.grp.as_deref().unwrap_or_default(), g.size as f64 / 1e9)
+            } else if g.kind == "software" {
                 format!("{:.1} GB", g.size as f64 / 1e9)
             } else {
                 [g.year.map(|y| y.to_string()), g.grp.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ")
@@ -128,7 +146,7 @@ async fn index(State(app): State<Shared>, Query(q): Query<SortQ>) -> Response {
     let kinds = KINDS.iter().map(|k| Opt { key: k.0.into(), label: k.1.into(), on: false }).collect();
     let sorts = SORTS.iter().map(|s| Opt { key: s.0.into(), label: s.1.into(), on: s.0 == sort }).collect();
     let msg = app.status.lock().unwrap().msg.clone();
-    render(IndexT { cards, kinds, sorts, msg, software, has_software })
+    render(IndexT { cards, kinds, sorts, msg, fane, software, has_software, has_roms })
 }
 
 struct Btn {
@@ -201,10 +219,11 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
         }
         "rar" => note = "Kun rar-filer – kan ikke mountes. Pak dem ud med spilarr unpack.".into(),
         "software" => note = "Program – hent det nedenfor, eller åbn stien under Filer i Stifinder.".into(),
+        "rom" => note = format!("{}-rom – hent den nedenfor.", g.grp.as_deref().unwrap_or_default()),
         _ => {}
     }
     // spil://-hjælperen kender kun spilmappen
-    if g.kind != "software" {
+    if g.kind != "software" && g.kind != "rom" {
         buttons.push(Btn { href: spil("open", &g.rel), label: "📂 Åbn mappe".into(), primary: false });
     }
 
@@ -258,7 +277,7 @@ async fn game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
         updates_href: if g.updates.is_empty() { String::new() } else { spil("open", &format!("{}/updates", g.rel)) },
         updates: g.updates,
         current,
-        software: g.kind == "software",
+        software: g.kind == "software" || g.kind == "rom",
     })
 }
 

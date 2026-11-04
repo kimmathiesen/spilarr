@@ -27,18 +27,36 @@ pub struct Config {
     /// Mappe med programmer (ikke spil); tom = slået fra
     pub software: Option<PathBuf>,
     pub software_unc: String,
+    /// Rom-mapper pr. system, fx ("PS2", /roms/ps2/DVD); tom = slået fra
+    pub roms: Vec<(String, PathBuf)>,
 }
 
 /// Software gemmes i samme tabel som spil, med rel = "@software/<mappe>".
 pub const SOFTWARE: &str = "@software/";
+/// Roms har rel = "@roms/<system>/<fil eller mappe>".
+pub const ROMS: &str = "@roms/";
+
+/// ROM_DIRS="PS1=/roms/ps;PS2=/roms/ps2" → [("PS1", /roms/ps), ("PS2", /roms/ps2)]
+fn rom_dirs(s: &str) -> Vec<(String, PathBuf)> {
+    s.split(';').filter_map(|p| p.split_once('=')).map(|(k, v)| (k.trim().to_string(), PathBuf::from(v.trim()))).collect()
+}
 
 impl Config {
     pub fn covers(&self) -> PathBuf {
         self.config.join("covers")
     }
 
-    /// Sti på disken for en rel-sti fra databasen (spil eller software).
+    /// Mappen for et rom-system og resten af stien, hvis rel er en rom.
+    fn rom(&self, rel: &str) -> Option<(&PathBuf, String)> {
+        let (sys, r) = rel.strip_prefix(ROMS)?.split_once('/')?;
+        self.roms.iter().find(|d| d.0 == sys).map(|d| (&d.1, r.to_string()))
+    }
+
+    /// Sti på disken for en rel-sti fra databasen (spil, software eller rom).
     pub fn path(&self, rel: &str) -> PathBuf {
+        if let Some((d, r)) = self.rom(rel) {
+            return d.join(r);
+        }
         match (rel.strip_prefix(SOFTWARE), &self.software) {
             (Some(r), Some(s)) => s.join(r),
             _ => self.games.join(rel),
@@ -47,6 +65,10 @@ impl Config {
 
     /// Windows-sti til en rel-sti.
     pub fn unc(&self, rel: &str) -> String {
+        // Roms ligger uden for data-sharen; vis stien i containeren
+        if self.rom(rel).is_some() {
+            return self.path(rel).to_string_lossy().to_string();
+        }
         match rel.strip_prefix(SOFTWARE) {
             Some(r) => format!("{}\\{}", self.software_unc, r.replace('/', "\\")),
             None => format!("{}\\{}", self.unc_root, rel.replace('/', "\\")),
@@ -95,6 +117,7 @@ async fn main() {
         import_minutes: env("IMPORT_MINUTES", "5").parse().unwrap_or(5.0),
         software: Some(env("SOFTWARE_DIR", "")).filter(|s| !s.is_empty()).map(PathBuf::from),
         software_unc: env("SOFTWARE_UNC", r"\\192.168.68.58\data\software"),
+        roms: rom_dirs(&env("ROM_DIRS", "")),
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "klient") {
@@ -153,7 +176,11 @@ mod tests {
             games: "/data/games".into(), config: "/config".into(), unc_root: r"\t\data\games".into(), linux_root: String::new(),
             scan_hours: 6.0, qbit_url: String::new(), qbit_category: String::new(), import_minutes: 5.0,
             software: Some("/data/software".into()), software_unc: r"\t\data\software".into(),
+            roms: rom_dirs("PS1=/roms/ps/roms; PS2 = /roms/ps2/DVD;forkert"),
         };
+        assert_eq!(c.roms.len(), 2);
+        assert_eq!(c.path("@roms/PS2/Spil.iso"), PathBuf::from("/roms/ps2/DVD/Spil.iso"));
+        assert_eq!(c.path("@roms/PS1/Spil/a.bin"), PathBuf::from("/roms/ps/roms/Spil/a.bin"));
         assert_eq!(c.path("Spil/a.iso"), PathBuf::from("/data/games/Spil/a.iso"));
         assert_eq!(c.path("@software/petka/x.iso"), PathBuf::from("/data/software/petka/x.iso"));
         assert_eq!(c.unc("portable/Cyberpunk"), r"\t\data\games\portable\Cyberpunk");

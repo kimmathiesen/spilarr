@@ -140,9 +140,19 @@ pub async fn crc(State(app): State<Shared>, UrlPath(id): UrlPath<i64>, Query(q):
 }
 
 /// Alle filer under `dir`, sorteret; navnene i zip'en starter med mappenavnet.
+/// Findes mappen ikke, er det en gruppe rom-filer (fx .cue + .bin) ved siden af hinanden.
 pub fn entries(dir: &Path) -> io::Result<Vec<Entry>> {
     let top = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let mut out = vec![];
+    if !dir.is_dir() {
+        for p in crate::scan::rom_group(dir.parent().unwrap_or(dir), &top) {
+            let m = std::fs::metadata(&p)?;
+            let secs = mtime(&m);
+            let name = format!("{top}/{}", p.file_name().unwrap_or_default().to_string_lossy());
+            out.push(Entry { path: p, name, size: m.len(), mtime: secs, dos: dos_time(secs) });
+        }
+        return Ok(out);
+    }
     for e in WalkDir::new(dir).min_depth(1).sort_by_file_name() {
         let e = e.map_err(io::Error::other)?;
         if !e.file_type().is_file() {
@@ -339,11 +349,12 @@ pub async fn folder(State(app): State<Shared>, UrlPath(id): UrlPath<i64>, header
         return (StatusCode::NOT_FOUND, "Ukendt spil").into_response();
     };
     let dir = app.cfg.path(&g.rel);
-    if !dir.is_dir() {
+    if !dir.is_dir() && g.kind != "rom" {
         return (StatusCode::NOT_FOUND, "Mappen findes ikke").into_response();
     }
     let d = dir.clone();
     let es = match tokio::task::spawn_blocking(move || entries(&d)).await {
+        Ok(Ok(es)) if es.is_empty() => return (StatusCode::NOT_FOUND, "Ingen filer").into_response(),
         Ok(Ok(es)) => es,
         Ok(Err(e)) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -428,6 +439,21 @@ mod tests {
         let mut iso = vec![];
         z.by_name("Spil (2020) - GRP/spil.iso").unwrap().read_to_end(&mut iso).unwrap();
         assert_eq!(iso, vec![7u8; 300_000]);
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn rom_group_zip() {
+        let tmp = std::env::temp_dir().join(format!("spilarr-rom-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        for f in ["Spil (USA).cue", "Spil (USA) (Track 1).bin", "Spil (USA) (Track 2).bin", "Andet.cue", "Cover.png"] {
+            std::fs::write(tmp.join(f), "x").unwrap();
+        }
+        assert_eq!(crate::scan::rom_key("Spil (USA) (Track 2).bin").as_deref(), Some("Spil (USA)"));
+        assert_eq!(crate::scan::rom_key("Cover.png"), None);
+        let es = entries(&tmp.join("Spil (USA)")).unwrap();
+        let names: Vec<_> = es.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["Spil (USA)/Spil (USA) (Track 1).bin", "Spil (USA)/Spil (USA) (Track 2).bin", "Spil (USA)/Spil (USA).cue"]);
         std::fs::remove_dir_all(tmp).unwrap();
     }
 

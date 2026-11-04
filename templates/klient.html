@@ -50,7 +50,7 @@
     .badge { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
       color: #fff; padding: 2px 7px; border-radius: 4px; background: #5b5d63; }
     .badge.iso { background: #2f8a5a; } .badge.rar { background: #a8493a; } .badge.setup { background: #3569b0; }
-    .badge.portable { background: #7550b5; } .badge.software { background: #0e7f7f; }
+    .badge.portable { background: #7550b5; } .badge.software { background: #0e7f7f; } .badge.rom { background: #2b55a8; }
     .reqs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 13px; color: #c5c7cc; }
     .reqs b { display: block; color: var(--text); font-weight: 600; margin-bottom: 4px; }
     .reqs div div { overflow-wrap: anywhere; }
@@ -145,7 +145,7 @@ async function post(url, body) {
   return t;
 }
 
-const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`}<span class="badge ${esc(g.kind)}">${esc(g.label)}</span>${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>`;
+const poster = g => `<div class="poster">${g.poster ? `<img loading="lazy" src="${esc(g.poster)}" alt="">` : `<div class="ph">${esc(g.title)}</div>`}<span class="badge ${esc(g.kind)}">${esc(g.kind === 'rom' ? g.grp : g.label)}</span>${g.kan ? kanIcon(g.kan, g.kan_why) : ''}</div>`;
 
 const KAN = { ja: ['✓', 'Opfylder anbefalet'], min: ['~', 'Opfylder minimum'], nej: ['✕', 'Kan næppe spilles'], ukendt: ['?', 'Kan ikke vurderes'] };
 const kanIcon = (k, why) => `<span class="kan ${k}" title="${esc(why || KAN[k][1])}">${KAN[k][0]}</span>`;
@@ -198,7 +198,8 @@ const reqs = (t, l) => l?.length ? `<div><b>${t}</b>${l.map(x => `<div>${esc(x)}
 function open(id) {
   const g = games.find(x => x.id == id); if (!g) return;
   const name = f => f.split('/').pop();
-  const btns = g.isos.map(f => `<button class="btn primary" data-f="${esc(f)}">Hent ${g.isos.length > 1 ? esc(name(f)) : 'ISO'}</button>`).join('')
+  // En rom er én fil eller én zip (mappe eller .cue + .bin'er)
+  const btns = g.kind === 'rom' ? `<button class="btn primary" data-f="${esc(g.isos[0] || '')}">Hent · ${gb(g.size)}</button>` : g.isos.map(f => `<button class="btn primary" data-f="${esc(f)}">Hent ${g.isos.length > 1 ? esc(name(f)) : 'ISO'}</button>`).join('')
     + `<button class="btn${g.isos.length ? '' : ' primary'}" data-f="">Hent mappen · ${gb(g.size)}</button>`;
   showBox('game', `${poster(g)}<div class="side">
     <h1>${esc(g.title)}${g.year ? ` <span class="muted">${g.year}</span>` : ''}</h1>

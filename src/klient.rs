@@ -536,7 +536,7 @@ fn med_vurdering(body: Vec<u8>, pc: &Specs) -> Vec<u8> {
     }
     let Ok(mut list) = serde_json::from_slice::<Vec<Value>>(&body) else { return body };
     let strs = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default() };
-    for g in list.iter_mut().filter(|g| g["kind"] != "software") {
+    for g in list.iter_mut().filter(|g| g["kind"] != "software" && g["kind"] != "rom") {
         let (kan, why) = krav::vurder(pc, &strs(&g["req_min"]), &strs(&g["req_rec"]));
         g["kan"] = kan.into();
         g["kan_why"] = why.into();
@@ -641,8 +641,11 @@ struct ApiGame {
     isos: Vec<String>,
 }
 
-/// Sti på USB-disken: spil i roden (uden portable/), programmer under Software/.
+/// Sti på USB-disken: spil i roden (uden portable/), programmer under Software/, roms under Roms/<system>/.
 fn disk_path(rel: &str) -> String {
+    if let Some(r) = rel.strip_prefix(crate::ROMS) {
+        return format!("Roms/{r}");
+    }
     match rel.strip_prefix(crate::SOFTWARE) {
         Some(r) => format!("Software/{r}"),
         None => rel.strip_prefix("portable/").unwrap_or(rel).to_string(),
@@ -1004,6 +1007,8 @@ mod tests {
         assert_eq!(disk_path("portable/Cyberpunk 2077 (2020).zip"), "Cyberpunk 2077 (2020).zip");
         assert_eq!(disk_path("@software/petka.zip"), "Software/petka.zip");
         assert_eq!(disk_path("@software/X/a.iso"), "Software/X/a.iso");
+        assert_eq!(disk_path("@roms/PS2/Spil.iso"), "Roms/PS2/Spil.iso");
+        assert_eq!(disk_path("@roms/PS1/Spil.zip"), "Roms/PS1/Spil.zip");
     }
 
     #[test]
