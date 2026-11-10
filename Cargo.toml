@@ -9,13 +9,13 @@ license = "MIT"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "net", "sync"] }
 tokio-stream = "0.1"
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 mime = "0.3"
 crc32fast = "1"
 libc = "0.2"
 askama = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"

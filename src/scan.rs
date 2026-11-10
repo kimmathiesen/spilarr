@@ -126,9 +126,8 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
         };
         let mtime = mtime_of(&d).max(mtime_of(&d.join("updates")));
         let old = db::find(&app.db.lock().unwrap(), &r);
-        if let Some((id, omt)) = old {
+        if let Some((_, omt)) = old {
             if (omt - mtime).abs() < 0.001 && !force {
-                let _ = db::touch(&app.db.lock().unwrap(), id, t);
                 continue;
             }
         }
@@ -157,6 +156,7 @@ fn run(app: &App, force: bool, _guard: std::sync::MutexGuard<()>) {
         let c = app.db.lock().unwrap();
         if !seen.is_empty() {
             let _ = db::delete_missing(&c, &seen);
+            let _ = db::touch_all(&c, t);
         }
         db::todo(&c, t - 7.0 * 86400.0).unwrap_or_default()
     };
@@ -193,9 +193,8 @@ fn scan_software(app: &App, sw: &Path, force: bool, t: f64, seen: &mut HashSet<S
             .map(|m| m.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs_f64())
             .unwrap_or(0.0);
         let old = db::find(&app.db.lock().unwrap(), &r);
-        if let Some((id, omt)) = old {
+        if let Some((_, omt)) = old {
             if (omt - mtime).abs() < 0.001 && !force {
-                let _ = db::touch(&app.db.lock().unwrap(), id, t);
                 continue;
             }
         }
@@ -226,8 +225,8 @@ pub fn rom_key(name: &str) -> Option<String> {
     if !ROM_EXT.contains(&ext.to_lowercase().as_str()) {
         return None;
     }
-    let track = Regex::new(r"(?i) \(track \d+\)$").expect("regex");
-    Some(track.replace(stem, "").to_string())
+    static TRACK: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| Regex::new(r"(?i) \(track \d+\)$").expect("regex"));
+    Some(TRACK.replace(stem, "").to_string())
 }
 
 /// Filerne i `dir`, der hører til spillet `key` (fx en .cue og dens .bin'er).
@@ -270,9 +269,8 @@ fn scan_roms(app: &App, sys: &str, dir: &Path, force: bool, t: f64, seen: &mut H
             None => mtime_of(&dir.join(&key)),
         };
         let old = db::find(&app.db.lock().unwrap(), &r);
-        if let Some((id, omt)) = old {
+        if let Some((_, omt)) = old {
             if (omt - mtime).abs() < 0.001 && !force {
-                let _ = db::touch(&app.db.lock().unwrap(), id, t);
                 continue;
             }
         }

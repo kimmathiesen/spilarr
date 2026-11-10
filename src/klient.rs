@@ -131,6 +131,14 @@ impl K {
         }
         self.save(&jobs);
     }
+
+    /// Fremskridt undervejs: kun i hukommelsen, så køen ikke skrives til SD-kortet/eMMC'en hvert andet sekund.
+    /// En genoptagelse går ud fra .part-filens størrelse, så det gemte `done` er kun til visning.
+    fn progress(&self, n: u64, f: impl FnOnce(&mut Job)) {
+        if let Some(j) = self.jobs.lock().unwrap().iter_mut().find(|j| j.n == n) {
+            f(j);
+        }
+    }
 }
 
 /// Monteringen i DOWNLOAD_DIR: filsystem og plads. Kun en rigtig montering tæller (ikke SD-kortet).
@@ -355,9 +363,10 @@ fn fetch(k: &K, http: &reqwest::blocking::Client, job: &Job, d: &Disk) -> Result
     }
     let mut done = start;
     let mut buf = vec![0u8; 1 << 20];
-    let (mut t, mut last) = (Instant::now(), done);
+    let (mut t, mut last, mut saved) = (Instant::now(), done, Instant::now());
     loop {
         if k.live.lock().unwrap().stop {
+            k.update(job.n, |j| j.done = done);
             return Ok(());
         }
         let r = res.read(&mut buf).map_err(|_| "Forbindelsen blev afbrudt".to_string())?;
@@ -373,7 +382,13 @@ fn fetch(k: &K, http: &reqwest::blocking::Client, job: &Job, d: &Disk) -> Result
                 let mut l = k.live.lock().unwrap();
                 l.speed = if l.speed == 0.0 { v } else { l.speed * 0.7 + v * 0.3 };
             }
-            k.update(job.n, |j| j.done = done);
+            // Gemmes hvert halve minut, så køen viser nogenlunde det rigtige efter et strømsvigt
+            if saved.elapsed().as_secs() >= 30 {
+                saved = Instant::now();
+                k.update(job.n, |j| j.done = done);
+            } else {
+                k.progress(job.n, |j| j.done = done);
+            }
             (t, last) = (Instant::now(), done);
         }
     }
@@ -399,7 +414,7 @@ fn check_and_finish(k: &K, http: &reqwest::blocking::Client, job: &Job, part: &P
     let mut progress = |done: u64, total: u64| {
         if t.elapsed().as_secs() >= 2 {
             t = Instant::now();
-            k.update(job.n, |j| j.msg = format!("{} %", done * 100 / total.max(1)));
+            k.progress(job.n, |j| j.msg = format!("{} %", done * 100 / total.max(1)));
         }
         !k.live.lock().unwrap().stop
     };
@@ -659,11 +674,23 @@ fn base(rel: &str) -> &str {
 /// Lægger en ISO (f) eller hele mappen (uden f) i køen. Størrelsen hentes med HEAD.
 async fn enqueue(State(k): State<Shared>, Json(h): Json<HentF>) -> Response {
     let fail = |s: &str| (StatusCode::BAD_REQUEST, s.to_string()).into_response();
-    let list: Vec<ApiGame> = match k.http.get(format!("{}/api/spil", k.cfg.server)).timeout(Duration::from_secs(15)).send().await {
-        Ok(r) => r.json().await.unwrap_or_default(),
+    // Ét spil ad gangen; en ældre server uden /api/spil/{id} svarer 404, og så bruges hele listen
+    let one = match k.http.get(format!("{}/api/spil/{}", k.cfg.server, h.id)).timeout(Duration::from_secs(15)).send().await {
+        Ok(r) if r.status().is_success() => r.json::<ApiGame>().await.ok(),
+        Ok(_) => None,
         Err(_) => return fail("Ingen forbindelse til serveren"),
     };
-    let Some(g) = list.into_iter().find(|g| g.id == h.id) else { return fail("Ukendt spil") };
+    let g = match one {
+        Some(g) => g,
+        None => {
+            let list: Vec<ApiGame> = match k.http.get(format!("{}/api/spil", k.cfg.server)).timeout(Duration::from_secs(15)).send().await {
+                Ok(r) => r.json().await.unwrap_or_default(),
+                Err(_) => return fail("Ingen forbindelse til serveren"),
+            };
+            let Some(g) = list.into_iter().find(|g| g.id == h.id) else { return fail("Ukendt spil") };
+            g
+        }
+    };
     let (url, dest, file, zip) = match &h.f {
         Some(f) if g.isos.contains(f) => {
             (format!("/spil/{}/hent?f={}", g.id, urlencoding::encode(f)), disk_path(f), base(f).to_string(), false)

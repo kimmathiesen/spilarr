@@ -10,6 +10,7 @@ pub fn open(p: &Path) -> rusqlite::Result<Connection> {
     let c = Connection::open(p)?;
     c.execute_batch(
         "pragma journal_mode=wal;
+         pragma synchronous=normal;
          create table if not exists games(
             id integer primary key, rel text unique, title text, year int, grp text, portable int,
             kind text, isos text, rars text, setups text, updates text, size int, mtime real,
@@ -108,8 +109,9 @@ pub fn find(c: &Connection, rel: &str) -> Option<(i64, f64)> {
         .ok()
 }
 
-pub fn touch(c: &Connection, id: i64, now: f64) -> rusqlite::Result<()> {
-    c.execute("update games set seen=?1 where id=?2", params![now, id]).map(|_| ())
+/// Alle tilbageværende spil er set i denne scanning – én skrivning i stedet for én pr. spil.
+pub fn touch_all(c: &Connection, now: f64) -> rusqlite::Result<()> {
+    c.execute("update games set seen=?1", [now]).map(|_| ())
 }
 
 pub fn save_scanned(c: &Connection, id: Option<i64>, rel: &str, s: &Scanned, now: f64) -> rusqlite::Result<()> {

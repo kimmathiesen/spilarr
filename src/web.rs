@@ -29,7 +29,9 @@ pub fn router(app: Shared) -> Router {
         .route("/spil/{id}/crc", get(download::crc))
         .route("/scan", post(scan_now))
         .route("/status", get(status))
-        .route("/api/spil", get(api_games))
+        // Kun listen komprimeres – downloads skal beholde Content-Length og Range
+        .route("/api/spil", get(api_games).layer(tower_http::compression::CompressionLayer::new()))
+        .route("/api/spil/{id}", get(api_game))
         .route("/import", get(imports).post(import_now))
         .route("/import/{hash}/retry", post(retry))
         .route("/img/{appid}/{kind}", get(img))
@@ -386,29 +388,41 @@ pub struct ApiGame {
     pub req_rec: Vec<String>,
 }
 
+fn api_of(app: &Shared, g: Game) -> ApiGame {
+    let poster = img_url(app, &g, "poster");
+    let m = g.meta.unwrap_or_default();
+    ApiGame {
+        id: g.id,
+        rel: g.rel,
+        title: g.title,
+        year: g.year,
+        grp: g.grp,
+        label: label(&g.kind),
+        kind: g.kind,
+        size: g.size,
+        added: g.added,
+        isos: g.isos,
+        poster,
+        poster_wide: m.poster_wide,
+        genres: m.genres,
+        short: m.short,
+        req_min: m.req_min,
+        req_rec: m.req_rec,
+    }
+}
+
 async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
     let games = db::list(&app.db.lock().unwrap(), "title collate nocase").unwrap_or_default();
-    Json(games.iter().map(|g| {
-        let m = g.meta.clone().unwrap_or_default();
-        ApiGame {
-            id: g.id,
-            rel: g.rel.clone(),
-            title: g.title.clone(),
-            year: g.year,
-            grp: g.grp.clone(),
-            kind: g.kind.clone(),
-            label: label(&g.kind),
-            size: g.size,
-            added: g.added,
-            isos: g.isos.clone(),
-            poster: img_url(&app, g, "poster"),
-            poster_wide: m.poster_wide,
-            genres: m.genres,
-            short: m.short,
-            req_min: m.req_min,
-            req_rec: m.req_rec,
-        }
-    }).collect())
+    Json(games.into_iter().map(|g| api_of(&app, g)).collect())
+}
+
+/// Ét spil, så klienten ikke skal hente hele listen for at lægge noget i køen.
+async fn api_game(State(app): State<Shared>, Path(id): Path<i64>) -> Response {
+    let g = db::get(&app.db.lock().unwrap(), id);
+    match g {
+        Some(g) => Json(api_of(&app, g)).into_response(),
+        None => (StatusCode::NOT_FOUND, "Ukendt spil").into_response(),
+    }
 }
 
 async fn img(State(app): State<Shared>, Path((appid, kind)): Path<(i64, String)>) -> Response {
