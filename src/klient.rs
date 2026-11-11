@@ -210,6 +210,7 @@ pub async fn run(cfg: Cfg) {
 
     let app = Router::new()
         .route("/", get(page))
+        .route("/font/sora.woff2", get(font))
         .route("/api/spil", get(games))
         .route("/api/specs", get(get_specs).post(set_specs))
         .route("/img/{appid}/{kind}", get(img))
@@ -526,6 +527,11 @@ async fn page() -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")], Html(include_str!("../templates/klient.html")))
 }
 
+/// Skriften ligger i programmet, så kiosken ikke skal hente den fra nettet.
+async fn font() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "font/woff2"), (header::CACHE_CONTROL, "public, max-age=31536000, immutable")], include_bytes!("../static/sora.woff2").as_slice())
+}
+
 /// Biblioteket fra serveren; uden forbindelse vises den sidst hentede udgave.
 async fn games(State(k): State<Shared>) -> Response {
     let cache = k.cfg.state.join("spil.json");
@@ -576,9 +582,10 @@ async fn set_specs(State(k): State<Shared>, Json(pc): Json<Specs>) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Plakater gemmes på SD-kortet, så de ikke hentes igen hver gang.
+/// Plakater og bannere gemmes på SD-kortet, så de ikke hentes igen hver gang.
 async fn img(State(k): State<Shared>, UrlPath((appid, kind)): UrlPath<(i64, String)>) -> Response {
-    if kind != "poster" {
+    // hero = det store banner bag spilsiden
+    if kind != "poster" && kind != "hero" {
         return StatusCode::NOT_FOUND.into_response();
     }
     let p = k.cfg.state.join("covers").join(format!("{appid}_{kind}.jpg"));
