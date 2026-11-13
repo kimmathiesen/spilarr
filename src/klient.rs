@@ -78,6 +78,9 @@ struct Job {
     start: f64,
     #[serde(default)]
     pause: bool,
+    /// Unix-tid, hvor downloaden første gang gik i gang (0 = ikke startet); styrer start- og færdig-beskeden
+    #[serde(default)]
+    meldt: f64,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -232,6 +235,50 @@ pub async fn run(cfg: Cfg) {
     axum::serve(listener, app).await.expect("server fejlede");
 }
 
+// ---------- Beskeder ----------
+
+/// Sender en besked via Spilarr-serveren (boksens firewall tillader kun den), som giver den videre til Apprise.
+/// Fejler stille: en besked må aldrig standse en download.
+fn meld(k: &K, title: &str, body: String) {
+    let url = format!("{}/api/besked", k.cfg.server);
+    let title = title.to_string();
+    std::thread::spawn(move || {
+        let c = reqwest::blocking::Client::builder().timeout(Duration::from_secs(15)).build();
+        if let Ok(c) = c {
+            if let Err(e) = c.post(url).json(&serde_json::json!({ "title": title, "body": body })).send() {
+                eprintln!("Besked ikke sendt: {e}");
+            }
+        }
+    });
+}
+
+fn boks() -> String {
+    fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "SpilarrOS".into())
+}
+
+fn gb(b: u64) -> String {
+    format!("{:.1} GB", b as f64 / GB).replace('.', ",")
+}
+
+fn varighed(s: f64) -> String {
+    let m = (s / 60.0).round() as u64;
+    if m < 60 { format!("{} min", m.max(1)) } else { format!("{} t {} min", m / 60, m % 60) }
+}
+
+/// Lokalt klokkeslæt (boksens tidszone), fx "02:00" eller "02:00 tirsdag" hvis det ikke er i dag
+fn klokken(t: f64) -> String {
+    let tm = |t: f64| unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&(t as libc::time_t), &mut tm);
+        tm
+    };
+    let (a, nu) = (tm(t), tm(now()));
+    let hm = format!("{:02}:{:02}", a.tm_hour, a.tm_min);
+    if a.tm_yday == nu.tm_yday { return hm; }
+    let dag = ["søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag"][a.tm_wday.clamp(0, 6) as usize];
+    format!("{hm} {dag}")
+}
+
 // ---------- Download-tråden ----------
 
 fn worker(k: &K) {
@@ -263,10 +310,16 @@ fn worker(k: &K) {
             l.stop = false;
             l.speed = 0.0;
         }
+        let first = job.meldt == 0.0;
+        let begyndt = if first { now() } else { job.meldt };
         k.update(job.n, |j| {
             j.state = Tilstand::Henter;
             j.msg.clear();
+            j.meldt = begyndt;
         });
+        if first {
+            meld(k, "Download startet", format!("{} henter {} ({})", boks(), job.title, gb(job.size)));
+        }
         let res = fetch(k, &http, &job, &d);
         let stopped = {
             let mut l = k.live.lock().unwrap();
@@ -282,15 +335,23 @@ fn worker(k: &K) {
             continue;
         }
         match res {
-            Ok(()) => k.update(job.n, |j| {
-                j.state = Tilstand::Faerdig;
-                j.done = j.size;
-                j.msg.clear();
-            }),
+            Ok(()) => {
+                k.update(job.n, |j| {
+                    j.state = Tilstand::Faerdig;
+                    j.done = j.size;
+                    j.msg.clear();
+                });
+                let tid = (now() - begyndt).max(1.0);
+                let fart = format!("{:.1}", job.size as f64 / tid / 1e6).replace('.', ",");
+                meld(k, "Download færdig", format!("{}: {} er hentet – {} på {}, {fart} MB/s i snit", boks(), job.title, gb(job.size), varighed(tid)));
+            }
             Err(e) => {
                 eprintln!("{}: {e}", job.file);
                 // En beskadiget fil er slettet; den hentes ikke forfra uden at blive bedt om det
                 let auto = !e.starts_with(BESKADIGET);
+                if !auto {
+                    meld(k, "Download fejlede", format!("{}: {} – {e}", boks(), job.title));
+                }
                 k.update(job.n, |j| {
                     j.state = Tilstand::Fejl;
                     j.msg = e;
@@ -724,7 +785,11 @@ async fn enqueue(State(k): State<Shared>, Json(h): Json<HentF>) -> Response {
     }
     let mut jobs = k.jobs.lock().unwrap();
     let n = jobs.iter().map(|j| j.n).max().unwrap_or(0) + 1;
-    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0, start: h.start, pause: false });
+    let title = g.title.clone();
+    jobs.push(Job { n, id: g.id, title: g.title, file, url, dest, zip, size, done: 0, state: Tilstand::Venter, msg: String::new(), retry: 0.0, start: h.start, pause: false, meldt: 0.0 });
+    if h.start > now() + 60.0 {
+        meld(&k, "Download planlagt", format!("{} henter {} ({}) kl. {}", boks(), title, gb(size), klokken(h.start)));
+    }
     k.save(&jobs);
     Json(serde_json::json!({ "n": n })).into_response()
 }
@@ -1006,7 +1071,7 @@ mod tests {
     #[test]
     fn flyt_i_koen() {
         let j = |n, state| Job { n, id: 1, title: String::new(), file: String::new(), url: String::new(), dest: String::new(),
-            zip: false, size: 1, done: 0, state, msg: String::new(), retry: 0.0, start: 0.0, pause: false };
+            zip: false, size: 1, done: 0, state, msg: String::new(), retry: 0.0, start: 0.0, pause: false, meldt: 0.0 };
         let mut v = vec![j(1, Tilstand::Venter), j(2, Tilstand::Faerdig), j(3, Tilstand::Venter), j(4, Tilstand::Venter)];
         let order = |v: &[Job]| v.iter().map(|j| j.n).collect::<Vec<_>>();
         flyt(&mut v, 3, true);
@@ -1046,9 +1111,16 @@ mod tests {
     }
 
     #[test]
+    fn besked_tekst() {
+        assert_eq!(gb(49_100_000_000), "49,1 GB");
+        assert_eq!(varighed(30.0), "1 min");
+        assert_eq!(varighed(4320.0), "1 t 12 min");
+    }
+
+    #[test]
     fn job_json() {
         let j = Job { n: 1, id: 2, title: "T".into(), file: "a.iso".into(), url: "/spil/2/hent?f=a".into(), dest: "X/a.iso".into(),
-            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0, start: 0.0, pause: false };
+            zip: false, size: 10, done: 3, state: Tilstand::Faerdig, msg: String::new(), retry: 0.0, start: 0.0, pause: false, meldt: 0.0 };
         let s = serde_json::to_string(&j).unwrap();
         assert!(s.contains("\"state\":\"faerdig\""));
         let back: Job = serde_json::from_str(&s).unwrap();

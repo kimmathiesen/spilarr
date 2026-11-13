@@ -32,6 +32,7 @@ pub fn router(app: Shared) -> Router {
         // Kun listen komprimeres – downloads skal beholde Content-Length og Range
         .route("/api/spil", get(api_games).layer(tower_http::compression::CompressionLayer::new()))
         .route("/api/spil/{id}", get(api_game))
+        .route("/api/besked", post(besked))
         .route("/import", get(imports).post(import_now))
         .route("/import/{hash}/retry", post(retry))
         .route("/img/{appid}/{kind}", get(img))
@@ -414,6 +415,34 @@ fn api_of(app: &Shared, g: Game) -> ApiGame {
 async fn api_games(State(app): State<Shared>) -> Json<Vec<ApiGame>> {
     let games = db::list(&app.db.lock().unwrap(), "title collate nocase").unwrap_or_default();
     Json(games.into_iter().map(|g| api_of(&app, g)).collect())
+}
+
+#[derive(Deserialize)]
+struct BeskedF {
+    title: String,
+    body: String,
+}
+
+/// Besked fra en SpilarrOS-boks (start, planlagt, færdig, fejl), sendt videre til Apprise med tag `medier`.
+async fn besked(State(app): State<Shared>, Json(b): Json<BeskedF>) -> StatusCode {
+    let url = app.cfg.apprise_url.clone();
+    if url.is_empty() {
+        return StatusCode::NO_CONTENT;
+    }
+    let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    let msg = serde_json::json!({ "title": cut(&b.title, 80), "body": cut(&b.body, 400), "tag": "medier" });
+    tokio::spawn(async move {
+        let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build();
+        match c.map(|c| c.post(&url).json(&msg).send()) {
+            Ok(f) => match f.await {
+                Ok(r) if !r.status().is_success() => eprintln!("Apprise svarede {}", r.status()),
+                Err(e) => eprintln!("Apprise: {e}"),
+                _ => {}
+            },
+            Err(e) => eprintln!("Apprise: {e}"),
+        }
+    });
+    StatusCode::NO_CONTENT
 }
 
 /// Ét spil, så klienten ikke skal hente hele listen for at lægge noget i køen.

@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub struct Config {
+    /// Apprise-endpoint til beskeder fra SpilarrOS-boksene; tom = slået fra
+    pub apprise_url: String,
     pub games: PathBuf,
     pub config: PathBuf,
     pub unc_root: String,
@@ -107,6 +109,7 @@ fn env(k: &str, d: &str) -> String {
 #[tokio::main]
 async fn main() {
     let cfg = Config {
+        apprise_url: env("APPRISE_URL", ""),
         games: env("GAMES_DIR", "/games").into(),
         config: env("CONFIG_DIR", "/config").into(),
         unc_root: env("UNC_ROOT", r"\\192.168.68.58\data\games"),
@@ -173,6 +176,7 @@ mod tests {
     #[test]
     fn stier() {
         let c = Config {
+            apprise_url: String::new(),
             games: "/data/games".into(), config: "/config".into(), unc_root: r"\t\data\games".into(), linux_root: String::new(),
             scan_hours: 6.0, qbit_url: String::new(), qbit_category: String::new(), import_minutes: 5.0,
             software: Some("/data/software".into()), software_unc: r"\t\data\software".into(),
